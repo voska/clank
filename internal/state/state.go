@@ -129,15 +129,17 @@ func (s *Store) SetAgentState(session, window string, info AgentInfo) {
 				continue
 			}
 			existing := s.sessions[i].Windows[j].Agent
-			if existing == nil || existing.State != info.State {
+			stateChanged := existing == nil || existing.State != info.State
+			if stateChanged {
 				info.LastChanged = time.Now()
+				// Only mark unseen on actual state transitions, not repeated scrapes
+				if !win.Active {
+					s.sessions[i].Windows[j].HasUnseen = true
+				}
 			} else {
 				info.LastChanged = existing.LastChanged
 			}
 			s.sessions[i].Windows[j].Agent = &info
-			if !win.Active {
-				s.sessions[i].Windows[j].HasUnseen = true
-			}
 			return
 		}
 	}
