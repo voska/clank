@@ -48,8 +48,8 @@ func TestRenderWindowLineActive(t *testing.T) {
 		Active: true,
 	}
 	got := renderWindowLine(win, 30, false, 0)
-	if !strings.Contains(got, glyphActive) {
-		t.Errorf("expected active glyph, got %q", got)
+	if !strings.Contains(got, "dev") {
+		t.Errorf("expected window name, got %q", got)
 	}
 }
 

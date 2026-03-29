@@ -97,7 +97,10 @@ func (m Model) View() string {
 	m.screenRows = nil
 
 	var b strings.Builder
-	row := 0
+
+	// Top padding
+	b.WriteString("\n")
+	m.screenRows = append(m.screenRows, -1)
 
 	for si, sess := range sessions {
 		hp := m.store.HighestPriority(sess.Name)
@@ -106,7 +109,6 @@ func (m Model) View() string {
 		b.WriteString("\n")
 		m.screenRows = append(m.screenRows, len(m.items))
 		m.items = append(m.items, item{isSession: true, session: sess.Name, sessIndex: sess.Index})
-		row++
 
 		if !sess.Collapsed {
 			for _, win := range sess.Windows {
@@ -121,15 +123,13 @@ func (m Model) View() string {
 					sessIndex: sess.Index,
 					winIndex:  win.Index,
 				})
-				row++
 			}
 		}
 
-		// Blank line between sessions (except after last)
+		// Blank line between sessions
 		if si < len(sessions)-1 {
 			b.WriteString("\n")
 			m.screenRows = append(m.screenRows, -1)
-			row++
 		}
 	}
 
@@ -178,7 +178,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
-	if msg.Type != tea.MouseLeft {
+	if msg.Action != tea.MouseActionPress || msg.Button != tea.MouseButtonLeft {
 		return m, nil
 	}
 	row := msg.Y

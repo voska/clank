@@ -1,27 +1,58 @@
 #!/usr/bin/env bash
-# clank.tmux — toggle clank sidebar pane
+# clank.tmux — persistent sidebar that follows you across windows/sessions
 CURRENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLANK_BIN="$CURRENT_DIR/bin/clank"
-
 _width=$(tmux show-option -gqv "@clank-width" 2>/dev/null)
 WIDTH="${_width:-30}"
+HOOK_IDX=100
 
-# Find existing clank pane in current window
-clank_pane=$(tmux list-panes -F '#{pane_id} #{pane_current_command}' | awk '$2 == "clank" {print $1; exit}')
+find_clank_pane() {
+  tmux list-panes -a -F '#{pane_id} #{pane_current_command}' 2>/dev/null \
+    | awk '$2 == "clank" {print $1; exit}'
+}
+
+in_current_window() {
+  local pane="$1"
+  tmux list-panes -F '#{pane_id}' 2>/dev/null | grep -qF "$pane"
+}
+
+ensure() {
+  local pane
+  pane=$(find_clank_pane)
+  [ -z "$pane" ] && return
+
+  if in_current_window "$pane"; then
+    return
+  fi
+
+  # Move clank pane into current window on the left
+  tmux join-pane -hb -l "$WIDTH" -t "$(tmux display-message -p '#{pane_id}')" -s "$pane" 2>/dev/null
+}
+
+toggle() {
+  local pane
+  pane=$(find_clank_pane)
+
+  if [ -n "$pane" ]; then
+    # OFF: kill pane, remove hooks
+    tmux kill-pane -t "$pane" 2>/dev/null
+    tmux set-hook -gu after-select-window[$HOOK_IDX] 2>/dev/null
+    tmux set-hook -gu client-session-changed[$HOOK_IDX] 2>/dev/null
+  else
+    # ON: create pane, set hooks, focus main pane
+    tmux split-window -hb -l "$WIDTH" "$CLANK_BIN --width $WIDTH"
+    tmux select-pane -R
+    tmux set-hook -g after-select-window[$HOOK_IDX] "run-shell '$CURRENT_DIR/clank.tmux ensure'"
+    tmux set-hook -g client-session-changed[$HOOK_IDX] "run-shell '$CURRENT_DIR/clank.tmux ensure'"
+  fi
+}
 
 case "${1:-toggle}" in
-  toggle)
-    if [ -n "$clank_pane" ]; then
-      tmux kill-pane -t "$clank_pane"
-    else
-      tmux split-window -hb -l "$WIDTH" "$CLANK_BIN --width $WIDTH"
-    fi
-    ;;
+  toggle) toggle ;;
+  ensure) ensure ;;
   focus)
-    if [ -z "$clank_pane" ]; then
-      tmux split-window -hb -l "$WIDTH" "$CLANK_BIN --width $WIDTH"
-    fi
-    clank_pane=$(tmux list-panes -F '#{pane_id} #{pane_current_command}' | awk '$2 == "clank" {print $1; exit}')
-    [ -n "$clank_pane" ] && tmux select-pane -t "$clank_pane"
+    ensure
+    pane=$(find_clank_pane)
+    [ -n "$pane" ] && tmux select-pane -t "$pane"
     ;;
 esac
