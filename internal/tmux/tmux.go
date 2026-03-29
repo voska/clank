@@ -89,7 +89,7 @@ func ParseSessionList(raw string) []Session {
 		if len(parts) < 4 {
 			continue
 		}
-		idx, _ := strconv.Atoi(parts[0])
+		idx, _ := strconv.Atoi(strings.TrimPrefix(parts[0], "$"))
 		wc, _ := strconv.Atoi(parts[2])
 		attached := parts[3] == "1"
 		sessions = append(sessions, Session{
