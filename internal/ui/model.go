@@ -395,8 +395,8 @@ func (m Model) scrapeAgents() tea.Cmd {
 					if win.Name != ap.window {
 						continue
 					}
-					if win.Agent != nil && win.Agent.FromHook {
-						logger.Log("scrape %s:%s skipping — hook is authoritative", ap.session, ap.window)
+					if win.Agent != nil && win.Agent.FromHook && time.Since(win.Agent.LastChanged) < 10*time.Second {
+						logger.Log("scrape %s:%s skipping — hook fresh (%s)", ap.session, ap.window, time.Since(win.Agent.LastChanged).Round(time.Millisecond))
 						goto nextAgent
 					}
 				}
