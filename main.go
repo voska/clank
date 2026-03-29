@@ -8,6 +8,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/voska/clank/internal/logger"
 	"github.com/voska/clank/internal/socket"
 	"github.com/voska/clank/internal/state"
 	"github.com/voska/clank/internal/tmux"
@@ -28,6 +29,12 @@ func main() {
 		fmt.Printf("clank %s\n", version)
 		os.Exit(0)
 	}
+
+	if err := logger.Init("/tmp/clank.log"); err != nil {
+		log.Printf("clank: warning: could not open log: %v", err)
+	}
+	defer logger.Close()
+	logger.Log("starting clank %s (width=%d poll=%s scrape=%s socket=%s)", version, *width, *pollInterval, *scrapeInterval, *socketPath)
 
 	store := state.New()
 	mux := &tmux.Live{}

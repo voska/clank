@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/voska/clank/internal/detect"
+	"github.com/voska/clank/internal/logger"
 	"github.com/voska/clank/internal/socket"
 	"github.com/voska/clank/internal/state"
 	"github.com/voska/clank/internal/tmux"
@@ -236,12 +237,14 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleSocketEvent(ev socket.Event) {
+	logger.Log("hook  %s:%s agent=%s state=%s reason=%s", ev.Session, ev.Window, ev.Agent, ev.State, ev.Reason)
 	info := state.AgentInfo{
 		Name:       ev.Agent,
 		State:      detect.State(ev.State),
 		WaitReason: ev.Reason,
 		Model:      ev.Model,
 		ContextPct: ev.ContextPct,
+		FromHook:   true,
 	}
 	m.store.SetAgentState(ev.Session, ev.Window, info)
 }
@@ -331,19 +334,25 @@ func (m Model) scrapeAgents() tea.Cmd {
 
 				if agentName == "" {
 					if win.Agent != nil && win.Agent.State != detect.StateDone {
+						logger.Log("scrape %s:%s agent gone, clearing", sess.Name, win.Name)
 						m.store.ClearAgent(sess.Name, win.Name)
 					}
 					continue
 				}
 
-				content, err := m.mux.CapturePaneByIndex(sess.Name, win.Index, agentPaneIdx, 20)
+				// If a hook recently set the state (within 5s), don't overwrite with scrape data
+				existing := win.Agent
+				if existing != nil && existing.FromHook && time.Since(existing.LastChanged) < 5*time.Second {
+					logger.Log("scrape %s:%s skipping — hook data is fresh (%s ago)", sess.Name, win.Name, time.Since(existing.LastChanged).Round(time.Millisecond))
+					continue
+				}
+
+				content, err := m.mux.CapturePaneByIndex(sess.Name, win.Index, agentPaneIdx, 30)
 				if err != nil {
 					continue
 				}
 				agentState, reason := detect.DetectState(content)
-				// Tier 1 confirmed agent process exists:
-				// - Unknown → assume running (process is alive, we just can't parse the TUI)
-				// - Exited → process is still there, so it's idle not exited
+
 				switch agentState {
 				case detect.StateUnknown:
 					agentState = detect.StateRunning
@@ -351,22 +360,18 @@ func (m Model) scrapeAgents() tea.Cmd {
 					agentState = detect.StateDone
 				}
 
-				existing := win.Agent
-				if existing != nil && existing.Model != "" {
-					m.store.SetAgentState(sess.Name, win.Name, state.AgentInfo{
-						Name:       agentName,
-						State:      agentState,
-						WaitReason: reason,
-						Model:      existing.Model,
-						ContextPct: existing.ContextPct,
-					})
-				} else {
-					m.store.SetAgentState(sess.Name, win.Name, state.AgentInfo{
-						Name:       agentName,
-						State:      agentState,
-						WaitReason: reason,
-					})
+				logger.Log("scrape %s:%s agent=%s state=%s reason=%s", sess.Name, win.Name, agentName, agentState, reason)
+
+				info := state.AgentInfo{
+					Name:       agentName,
+					State:      agentState,
+					WaitReason: reason,
 				}
+				if existing != nil {
+					info.Model = existing.Model
+					info.ContextPct = existing.ContextPct
+				}
+				m.store.SetAgentState(sess.Name, win.Name, info)
 			}
 		}
 		return nil
