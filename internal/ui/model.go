@@ -67,8 +67,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		return m.handleKey(msg)
+	case tea.MouseMsg:
+		return m.handleMouse(msg)
 	case tea.WindowSizeMsg:
-		m.width = msg.Width
+		if m.config.Width > 0 {
+			m.width = m.config.Width
+		} else {
+			m.width = msg.Width
+		}
 		m.height = msg.Height
 		return m, nil
 	case tickMsg:
@@ -157,6 +163,53 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	if msg.Type != tea.MouseLeft {
+		return m, nil
+	}
+	// msg.Y is the row clicked (0-indexed)
+	row := msg.Y
+	if row < 0 || row >= len(m.items) {
+		return m, nil
+	}
+	// Account for blank lines between sessions — need to map screen row to item index
+	// The items list doesn't include blank separator lines, so we need to track screen rows
+	idx := m.screenRowToItem(row)
+	if idx < 0 || idx >= len(m.items) {
+		return m, nil
+	}
+	m.cursor = idx
+	it := m.items[idx]
+	if it.isSession {
+		m.mux.SwitchWindow(it.session, 0)
+	} else {
+		m.mux.SwitchWindow(it.session, it.winIndex)
+		m.store.ClearUnseen(it.session, it.window)
+	}
+	return m, nil
+}
+
+func (m Model) screenRowToItem(row int) int {
+	// Walk through items and count screen rows including blank separators
+	screenRow := 0
+	for i, it := range m.items {
+		if screenRow == row {
+			return i
+		}
+		screenRow++
+		// After the last window of an expanded session, there's a blank line
+		if !it.isSession {
+			// Check if next item is a session header (meaning we just finished a session's windows)
+			if i+1 < len(m.items) && m.items[i+1].isSession {
+				screenRow++ // blank separator line
+			} else if i+1 >= len(m.items) {
+				screenRow++ // blank line after last session
+			}
+		}
+	}
+	return -1
 }
 
 func (m Model) handleSocketEvent(ev socket.Event) {
