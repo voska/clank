@@ -1,0 +1,41 @@
+# clank
+
+clank is a tmux sidebar TUI (terminal user interface) written in Go that
+displays the state of AI agent sessions running in tmux windows. It shows
+which windows have agents running, waiting for input, or finished, giving
+developers a real-time fleet view of their AI coding sessions.
+
+## Key concepts
+
+- **Sessions**: tmux sessions map to projects
+- **Windows**: tmux windows map to workstreams; each window can have an agent
+- **Agent states**: running, waiting (needs input), done, error, idle
+- **Hook bridge**: a bash script that receives Claude Code lifecycle events and
+  forwards structured JSON to clank's Unix socket
+
+## Key files
+
+- `main.go` — entry point, flag parsing, wiring components
+- `internal/tmux/` — tmux interface: session/window/pane discovery, live polling
+- `internal/agent/` — agent detection from process name and pane content
+- `internal/state/` — thread-safe session/window/agent state tree
+- `internal/socket/` — Unix socket listener for hook bridge events
+- `internal/ui/` — Bubbletea TUI: styles, model, view, keybindings
+- `agent-hook-bridge` — bash hook script for Claude Code integration
+- `clank.tmux` — TPM plugin entry point
+- `scripts/install.sh` — binary download script for TPM bootstrap
+
+## Architecture
+
+clank runs as a long-lived process inside a hidden tmux session (`_clank`).
+It polls tmux every second for session/window changes, scrapes pane content
+for agent detection heuristics, and listens on `/tmp/clank.sock` for richer
+state updates from the hook bridge. The TUI renders in a sidebar pane joined
+from the stash session into the current session.
+
+## Integration
+
+The hook bridge (`agent-hook-bridge`) connects Claude Code hooks to clank.
+It reads hook event data from stdin, extracts relevant fields with jq, and
+sends JSON messages to the Unix socket. It also sends OSC 777 notifications
+to Ghostty for desktop alerts when agents need attention.
