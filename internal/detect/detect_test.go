@@ -38,13 +38,23 @@ func TestDetectState(t *testing.T) {
 		reason  string
 	}{
 		{
-			name:    "running with spinner text",
-			content: "some output\n⠙ Thinking...\n\x1b[2m  esc to interrupt\x1b[0m",
+			name:    "running with active tool execution",
+			content: "⎿  Running…\n\n✻ Clauding… (thought for 5s)\n\n───\n❯ \n───\n  proj | Opus 4.6\n  ⏵⏵ bypass\n",
+			want:    StateRunning,
+		},
+		{
+			name:    "running with thinking spinner",
+			content: "some output\n✻ Thinking…\n",
 			want:    StateRunning,
 		},
 		{
 			name:    "running with esc to interrupt",
 			content: "some output\nDoing stuff\n  esc to interrupt",
+			want:    StateRunning,
+		},
+		{
+			name:    "running with braille spinner",
+			content: "some output\n⠙ Thinking...\n",
 			want:    StateRunning,
 		},
 		{
@@ -60,13 +70,13 @@ func TestDetectState(t *testing.T) {
 			reason:  "decision",
 		},
 		{
-			name:    "idle prompt",
-			content: "some output\nDone with the task.\n\n> ",
+			name:    "idle with past tense and prompt",
+			content: "✻ Cogitated for 33s\n\n───\n❯ \n───\n  proj | Opus 4.6\n  ⏸ plan mode\n",
 			want:    StateDone,
 		},
 		{
-			name:    "claude prompt chevron",
-			content: "some output\n❯ ",
+			name:    "idle prompt chevron",
+			content: "some output\n❯ \nstatus bar",
 			want:    StateDone,
 		},
 		{
