@@ -26,12 +26,10 @@ var (
 				Foreground(colorSubtext)
 
 	windowStyle = lipgloss.NewStyle().
-			Foreground(colorSubtext).
-			PaddingLeft(4)
+			Foreground(colorSubtext)
 
 	windowActiveStyle = lipgloss.NewStyle().
-				Foreground(colorText).
-				PaddingLeft(2)
+				Foreground(colorText)
 
 	cursorStyle = lipgloss.NewStyle().
 			Foreground(colorRosewater)

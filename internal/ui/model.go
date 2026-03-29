@@ -27,7 +27,7 @@ type Model struct {
 	width        int
 	height       int
 	items        []item
-	screenRows   []int // maps screen row -> item index (-1 for blank lines)
+	screenRows   []int
 }
 
 type item struct {
@@ -63,6 +63,48 @@ func (m Model) Init() tea.Cmd {
 	)
 }
 
+// rebuildItems flattens the session/window tree into a navigable list
+// and maps screen rows to item indices. Must be called after any state change.
+func (m *Model) rebuildItems() {
+	m.items = nil
+	m.screenRows = nil
+
+	sessions := m.store.Sessions()
+
+	// Top padding
+	m.screenRows = append(m.screenRows, -1)
+
+	for si, sess := range sessions {
+		m.screenRows = append(m.screenRows, len(m.items))
+		m.items = append(m.items, item{isSession: true, session: sess.Name, sessIndex: sess.Index})
+
+		if !sess.Collapsed {
+			for _, win := range sess.Windows {
+				m.screenRows = append(m.screenRows, len(m.items))
+				m.items = append(m.items, item{
+					isSession: false,
+					session:   sess.Name,
+					window:    win.Name,
+					sessIndex: sess.Index,
+					winIndex:  win.Index,
+				})
+			}
+		}
+
+		if si < len(sessions)-1 {
+			m.screenRows = append(m.screenRows, -1)
+		}
+	}
+
+	// Clamp cursor
+	if m.cursor >= len(m.items) {
+		m.cursor = len(m.items) - 1
+	}
+	if m.cursor < 0 {
+		m.cursor = 0
+	}
+}
+
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -76,16 +118,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.width = msg.Width
 		}
 		m.height = msg.Height
+		m.rebuildItems()
 		return m, nil
 	case tickMsg:
+		m.rebuildItems()
 		return m, tea.Batch(m.pollTmux(), m.tickCmd())
 	case scrapeMsg:
+		m.rebuildItems()
 		return m, tea.Batch(m.scrapeAgents(), m.scrapeCmd())
 	case spinnerMsg:
 		m.spinnerFrame++
 		return m, m.spinnerCmd()
 	case socketEventMsg:
 		m.handleSocketEvent(socket.Event(msg))
+		m.rebuildItems()
 		return m, m.listenSocket()
 	}
 	return m, nil
@@ -93,43 +139,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) View() string {
 	sessions := m.store.Sessions()
-	m.items = nil
-	m.screenRows = nil
 
 	var b strings.Builder
+	b.WriteString("\n") // top padding
 
-	// Top padding
-	b.WriteString("\n")
-	m.screenRows = append(m.screenRows, -1)
-
+	itemIdx := 0
 	for si, sess := range sessions {
 		hp := m.store.HighestPriority(sess.Name)
-		selected := m.cursor == len(m.items)
+		selected := m.cursor == itemIdx
 		b.WriteString(renderSessionHeader(sess.Index, sess.Name, sess.Collapsed, hp, selected, m.width))
 		b.WriteString("\n")
-		m.screenRows = append(m.screenRows, len(m.items))
-		m.items = append(m.items, item{isSession: true, session: sess.Name, sessIndex: sess.Index})
+		itemIdx++
 
 		if !sess.Collapsed {
 			for _, win := range sess.Windows {
-				selected = m.cursor == len(m.items)
+				selected = m.cursor == itemIdx
 				b.WriteString(renderWindowLine(win, m.width, selected, m.spinnerFrame))
 				b.WriteString("\n")
-				m.screenRows = append(m.screenRows, len(m.items))
-				m.items = append(m.items, item{
-					isSession: false,
-					session:   sess.Name,
-					window:    win.Name,
-					sessIndex: sess.Index,
-					winIndex:  win.Index,
-				})
+				itemIdx++
 			}
 		}
 
-		// Blank line between sessions
 		if si < len(sessions)-1 {
 			b.WriteString("\n")
-			m.screenRows = append(m.screenRows, -1)
 		}
 	}
 
@@ -149,20 +181,22 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.cursor--
 		}
 	case "enter":
-		if m.cursor < len(m.items) {
+		if m.cursor >= 0 && m.cursor < len(m.items) {
 			it := m.items[m.cursor]
 			if it.isSession {
 				m.store.ToggleCollapse(it.session)
+				m.rebuildItems()
 			} else {
 				m.mux.SwitchWindow(it.session, it.winIndex)
 				m.store.ClearUnseen(it.session, it.window)
 			}
 		}
 	case " ":
-		if m.cursor < len(m.items) {
+		if m.cursor >= 0 && m.cursor < len(m.items) {
 			it := m.items[m.cursor]
 			if it.isSession {
 				m.store.ToggleCollapse(it.session)
+				m.rebuildItems()
 			}
 		}
 	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
@@ -192,7 +226,8 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	m.cursor = idx
 	it := m.items[idx]
 	if it.isSession {
-		m.mux.SwitchWindow(it.session, 0)
+		m.store.ToggleCollapse(it.session)
+		m.rebuildItems()
 	} else {
 		m.mux.SwitchWindow(it.session, it.winIndex)
 		m.store.ClearUnseen(it.session, it.window)
@@ -210,8 +245,6 @@ func (m Model) handleSocketEvent(ev socket.Event) {
 	}
 	m.store.SetAgentState(ev.Session, ev.Window, info)
 }
-
-// Commands
 
 func (m Model) tickCmd() tea.Cmd {
 	return tea.Tick(m.config.PollInterval, func(time.Time) tea.Msg {
@@ -280,13 +313,11 @@ func (m Model) scrapeAgents() tea.Cmd {
 		sessions := m.store.Sessions()
 		for _, sess := range sessions {
 			for _, win := range sess.Windows {
-				// Check ALL panes in this window, not just the active one
 				cmds, err := m.mux.PaneCommands(sess.Name, win.Index)
 				if err != nil {
 					continue
 				}
 
-				// Find first pane with a known agent
 				agentName := ""
 				agentPaneIdx := -1
 				for i, cmd := range cmds {
@@ -305,7 +336,6 @@ func (m Model) scrapeAgents() tea.Cmd {
 					continue
 				}
 
-				// Scrape the agent's specific pane
 				content, err := m.mux.CapturePaneByIndex(sess.Name, win.Index, agentPaneIdx, 20)
 				if err != nil {
 					continue
