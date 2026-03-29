@@ -389,9 +389,26 @@ func (m Model) scrapeAgents() tea.Cmd {
 				}
 				agentState, reason := detect.DetectState(content)
 
+				// Look up existing state to avoid flipping done→running on unknown
+				var existingState detect.State
+				for _, sess := range m.store.Sessions() {
+					if sess.Name != ap.session {
+						continue
+					}
+					for _, win := range sess.Windows {
+						if win.Name == ap.window && win.Agent != nil {
+							existingState = win.Agent.State
+						}
+					}
+				}
+
 				switch agentState {
 				case detect.StateUnknown:
-					agentState = detect.StateRunning
+					if existingState != "" {
+						agentState = existingState // preserve existing state
+					} else {
+						agentState = detect.StateRunning // new agent, assume running
+					}
 				case detect.StateExited:
 					agentState = detect.StateDone
 				}
