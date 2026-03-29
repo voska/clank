@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"fmt"
 	"strings"
 	"time"
 
@@ -28,6 +27,7 @@ type Model struct {
 	width        int
 	height       int
 	items        []item
+	screenRows   []int // maps screen row -> item index (-1 for blank lines)
 }
 
 type item struct {
@@ -94,21 +94,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) View() string {
 	sessions := m.store.Sessions()
 	m.items = nil
+	m.screenRows = nil
 
 	var b strings.Builder
+	row := 0
 
-	for _, sess := range sessions {
+	for si, sess := range sessions {
 		hp := m.store.HighestPriority(sess.Name)
 		selected := m.cursor == len(m.items)
-		b.WriteString(renderSessionHeader(sess.Index, sess.Name, sess.Collapsed, hp, selected))
+		b.WriteString(renderSessionHeader(sess.Index, sess.Name, sess.Collapsed, hp, selected, m.width))
 		b.WriteString("\n")
+		m.screenRows = append(m.screenRows, len(m.items))
 		m.items = append(m.items, item{isSession: true, session: sess.Name, sessIndex: sess.Index})
+		row++
 
 		if !sess.Collapsed {
 			for _, win := range sess.Windows {
 				selected = m.cursor == len(m.items)
 				b.WriteString(renderWindowLine(win, m.width, selected, m.spinnerFrame))
 				b.WriteString("\n")
+				m.screenRows = append(m.screenRows, len(m.items))
 				m.items = append(m.items, item{
 					isSession: false,
 					session:   sess.Name,
@@ -116,8 +121,15 @@ func (m Model) View() string {
 					sessIndex: sess.Index,
 					winIndex:  win.Index,
 				})
+				row++
 			}
+		}
+
+		// Blank line between sessions (except after last)
+		if si < len(sessions)-1 {
 			b.WriteString("\n")
+			m.screenRows = append(m.screenRows, -1)
+			row++
 		}
 	}
 
@@ -146,7 +158,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.store.ClearUnseen(it.session, it.window)
 			}
 		}
-	case "space":
+	case " ":
 		if m.cursor < len(m.items) {
 			it := m.items[m.cursor]
 			if it.isSession {
@@ -169,14 +181,11 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	if msg.Type != tea.MouseLeft {
 		return m, nil
 	}
-	// msg.Y is the row clicked (0-indexed)
 	row := msg.Y
-	if row < 0 || row >= len(m.items) {
+	if row < 0 || row >= len(m.screenRows) {
 		return m, nil
 	}
-	// Account for blank lines between sessions — need to map screen row to item index
-	// The items list doesn't include blank separator lines, so we need to track screen rows
-	idx := m.screenRowToItem(row)
+	idx := m.screenRows[row]
 	if idx < 0 || idx >= len(m.items) {
 		return m, nil
 	}
@@ -191,27 +200,6 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) screenRowToItem(row int) int {
-	// Walk through items and count screen rows including blank separators
-	screenRow := 0
-	for i, it := range m.items {
-		if screenRow == row {
-			return i
-		}
-		screenRow++
-		// After the last window of an expanded session, there's a blank line
-		if !it.isSession {
-			// Check if next item is a session header (meaning we just finished a session's windows)
-			if i+1 < len(m.items) && m.items[i+1].isSession {
-				screenRow++ // blank separator line
-			} else if i+1 >= len(m.items) {
-				screenRow++ // blank line after last session
-			}
-		}
-	}
-	return -1
-}
-
 func (m Model) handleSocketEvent(ev socket.Event) {
 	info := state.AgentInfo{
 		Name:       ev.Agent,
@@ -222,6 +210,8 @@ func (m Model) handleSocketEvent(ev socket.Event) {
 	}
 	m.store.SetAgentState(ev.Session, ev.Window, info)
 }
+
+// Commands
 
 func (m Model) tickCmd() tea.Cmd {
 	return tea.Tick(m.config.PollInterval, func(time.Time) tea.Msg {
@@ -290,13 +280,24 @@ func (m Model) scrapeAgents() tea.Cmd {
 		sessions := m.store.Sessions()
 		for _, sess := range sessions {
 			for _, win := range sess.Windows {
-				target := fmt.Sprintf("%s:%d", sess.Name, win.Index)
-
-				cmd, err := m.mux.PaneCommand(target)
+				// Check ALL panes in this window, not just the active one
+				cmds, err := m.mux.PaneCommands(sess.Name, win.Index)
 				if err != nil {
 					continue
 				}
-				agentName := detect.IdentifyAgent(cmd)
+
+				// Find first pane with a known agent
+				agentName := ""
+				agentPaneIdx := -1
+				for i, cmd := range cmds {
+					name := detect.IdentifyAgent(cmd)
+					if name != "" {
+						agentName = name
+						agentPaneIdx = i
+						break
+					}
+				}
+
 				if agentName == "" {
 					if win.Agent != nil && win.Agent.State != detect.StateDone {
 						m.store.ClearAgent(sess.Name, win.Name)
@@ -304,7 +305,8 @@ func (m Model) scrapeAgents() tea.Cmd {
 					continue
 				}
 
-				content, err := m.mux.CapturePane(target, 20)
+				// Scrape the agent's specific pane
+				content, err := m.mux.CapturePaneByIndex(sess.Name, win.Index, agentPaneIdx, 20)
 				if err != nil {
 					continue
 				}

@@ -9,7 +9,7 @@ import (
 )
 
 func TestRenderSessionHeader(t *testing.T) {
-	got := renderSessionHeader(1, "sensai", false, "", false)
+	got := renderSessionHeader(1, "sensai", false, "", false, 30)
 	if !strings.Contains(got, "1") || !strings.Contains(got, "sensai") {
 		t.Errorf("expected index and name in header, got %q", got)
 	}
@@ -19,7 +19,7 @@ func TestRenderSessionHeader(t *testing.T) {
 }
 
 func TestRenderSessionHeaderCollapsed(t *testing.T) {
-	got := renderSessionHeader(1, "sensai", true, "", false)
+	got := renderSessionHeader(1, "sensai", true, "", false, 30)
 	if !strings.Contains(got, glyphCollapsed) {
 		t.Errorf("expected collapsed glyph, got %q", got)
 	}

@@ -9,40 +9,53 @@ import (
 	"github.com/voska/clank/internal/state"
 )
 
-func renderSessionHeader(index int, name string, collapsed bool, highestState detect.State, selected bool) string {
+func renderSessionHeader(index int, name string, collapsed bool, highestState detect.State, selected bool, width int) string {
 	toggle := glyphExpanded
-	style := sessionStyle
 	if collapsed {
 		toggle = glyphCollapsed
-		style = sessionCollapsedStyle
 	}
 
-	prefix := fmt.Sprintf("%2d", index)
+	prefix := fmt.Sprintf("%d", index)
+	styledName := sessionStyle.Render(name)
+	if collapsed {
+		styledName = sessionCollapsedStyle.Render(name)
+	}
 	if selected {
 		prefix = cursorStyle.Render(prefix)
+		styledName = cursorStyle.Render(name)
 	}
 
-	header := fmt.Sprintf("%s %s", prefix, style.Render(name))
+	left := fmt.Sprintf(" %s %s", prefix, styledName)
 
+	// If collapsed and there's agent activity, show rolled-up state
 	var stateStr string
 	if collapsed && highestState != "" {
 		stateStr = renderStateIndicator(highestState, 0)
 	}
 
+	right := dimStyle.Render(toggle)
 	if stateStr != "" {
-		header = fmt.Sprintf("%s  %s", header, stateStr)
+		right = stateStr + " " + right
 	}
 
-	header = fmt.Sprintf("%s %s", header, dimStyle.Render(toggle))
-	return header
+	leftLen := lipgloss.Width(left)
+	rightLen := lipgloss.Width(right)
+	gap := width - leftLen - rightLen
+	if gap < 1 {
+		gap = 1
+	}
+
+	return left + strings.Repeat(" ", gap) + right
 }
 
 func renderWindowLine(win state.WindowState, width int, selected bool, spinnerFrame int) string {
-	var prefix string
-	if win.Active {
-		prefix = cursorStyle.Render(glyphActive + " ")
+	var left string
+	if win.HasUnseen {
+		left = "  " + indicatorUnseen.Render(glyphUnseen) + " "
+	} else if win.Active {
+		left = "  " + cursorStyle.Render(glyphActive) + " "
 	} else {
-		prefix = "    "
+		left = "    "
 	}
 
 	name := win.Name
@@ -51,30 +64,24 @@ func renderWindowLine(win state.WindowState, width int, selected bool, spinnerFr
 	} else if win.Active {
 		name = windowActiveStyle.Render(name)
 	} else {
-		name = windowStyle.Render(name)
+		name = dimStyle.Render(name)
 	}
 
-	var indicator string
-	if win.Agent != nil {
-		indicator = renderStateIndicator(win.Agent.State, spinnerFrame)
+	left = left + name
+
+	if win.Agent == nil {
+		return left
 	}
 
-	var unseenMark string
-	if win.HasUnseen {
-		unseenMark = indicatorUnseen.Render(glyphUnseen) + " "
+	indicator := renderStateIndicator(win.Agent.State, spinnerFrame)
+	leftLen := lipgloss.Width(left)
+	rightLen := lipgloss.Width(indicator)
+	gap := width - leftLen - rightLen
+	if gap < 1 {
+		gap = 1
 	}
 
-	line := fmt.Sprintf("%s%s%s", prefix, unseenMark, name)
-	if indicator != "" {
-		nameLen := lipgloss.Width(line)
-		indicatorLen := lipgloss.Width(indicator)
-		padding := width - nameLen - indicatorLen - 1
-		if padding < 1 {
-			padding = 1
-		}
-		line = line + strings.Repeat(" ", padding) + indicator
-	}
-	return line
+	return left + strings.Repeat(" ", gap) + indicator
 }
 
 func renderStateIndicator(s detect.State, spinnerFrame int) string {

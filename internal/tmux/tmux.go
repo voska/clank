@@ -24,14 +24,16 @@ type Mux interface {
 	ListSessions() ([]Session, error)
 	ListWindows(session string) ([]Window, error)
 	PaneCommand(target string) (string, error)
+	PaneCommands(session string, windowIndex int) ([]string, error)
 	CapturePane(target string, lines int) (string, error)
+	CapturePaneByIndex(session string, windowIndex, paneIndex, lines int) (string, error)
 	SwitchWindow(session string, windowIndex int) error
 }
 
 type Live struct{}
 
 func (l *Live) ListSessions() ([]Session, error) {
-	out, err := run("list-sessions", "-F", "#{session_id}:#{session_name}:#{session_windows}:#{session_attached}")
+	out, err := run("list-sessions", "-F", "#{session_name}:#{session_windows}:#{session_attached}")
 	if err != nil {
 		return nil, fmt.Errorf("list-sessions: %w", err)
 	}
@@ -54,6 +56,22 @@ func (l *Live) PaneCommand(target string) (string, error) {
 	return ParsePaneCommand(out), nil
 }
 
+// PaneCommands returns the foreground command of every pane in a window.
+func (l *Live) PaneCommands(session string, windowIndex int) ([]string, error) {
+	target := fmt.Sprintf("%s:%d", session, windowIndex)
+	out, err := run("list-panes", "-t", target, "-F", "#{pane_current_command}")
+	if err != nil {
+		return nil, fmt.Errorf("pane-commands %s: %w", target, err)
+	}
+	var cmds []string
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		if line != "" {
+			cmds = append(cmds, line)
+		}
+	}
+	return cmds, nil
+}
+
 func (l *Live) CapturePane(target string, lines int) (string, error) {
 	start := fmt.Sprintf("-%d", lines)
 	out, err := run("capture-pane", "-t", target, "-p", "-S", start)
@@ -61,6 +79,12 @@ func (l *Live) CapturePane(target string, lines int) (string, error) {
 		return "", fmt.Errorf("capture-pane %s: %w", target, err)
 	}
 	return out, nil
+}
+
+// CapturePaneByIndex captures a specific pane by session:window.pane index.
+func (l *Live) CapturePaneByIndex(session string, windowIndex, paneIndex, lines int) (string, error) {
+	target := fmt.Sprintf("%s:%d.%d", session, windowIndex, paneIndex)
+	return l.CapturePane(target, lines)
 }
 
 func (l *Live) SwitchWindow(session string, windowIndex int) error {
@@ -79,29 +103,35 @@ func run(args ...string) (string, error) {
 	return string(out), err
 }
 
+// ParseSessionList parses tmux list-sessions output.
+// Format: "name:window_count:attached\n"
+// Assigns sequential 1-based indices.
 func ParseSessionList(raw string) []Session {
 	var sessions []Session
+	idx := 1
 	for _, line := range strings.Split(strings.TrimSpace(raw), "\n") {
 		if line == "" {
 			continue
 		}
-		parts := strings.SplitN(line, ":", 4)
-		if len(parts) < 4 {
+		parts := strings.SplitN(line, ":", 3)
+		if len(parts) < 3 {
 			continue
 		}
-		idx, _ := strconv.Atoi(strings.TrimPrefix(parts[0], "$"))
-		wc, _ := strconv.Atoi(parts[2])
-		attached := parts[3] == "1"
+		wc, _ := strconv.Atoi(parts[1])
+		attached := parts[2] == "1"
 		sessions = append(sessions, Session{
 			Index:       idx,
-			Name:        parts[1],
+			Name:        parts[0],
 			WindowCount: wc,
 			Attached:    attached,
 		})
+		idx++
 	}
 	return sessions
 }
 
+// ParseWindowList parses tmux list-windows output.
+// Format: "index:name:active\n"
 func ParseWindowList(raw string) []Window {
 	var windows []Window
 	for _, line := range strings.Split(strings.TrimSpace(raw), "\n") {
@@ -112,10 +142,10 @@ func ParseWindowList(raw string) []Window {
 		if len(parts) < 3 {
 			continue
 		}
-		idx, _ := strconv.Atoi(parts[0])
+		i, _ := strconv.Atoi(parts[0])
 		active := parts[2] == "1"
 		windows = append(windows, Window{
-			Index:  idx,
+			Index:  i,
 			Name:   parts[1],
 			Active: active,
 		})
