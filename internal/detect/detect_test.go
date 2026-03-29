@@ -65,9 +65,9 @@ func TestDetectState(t *testing.T) {
 			want:    StateDone,
 		},
 		{
-			name:    "shell prompt zsh",
+			name:    "claude prompt chevron",
 			content: "some output\n❯ ",
-			want:    StateExited,
+			want:    StateDone,
 		},
 		{
 			name:    "shell prompt bash",
