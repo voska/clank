@@ -3,7 +3,7 @@ package tmux
 import "testing"
 
 func TestParseSessionList(t *testing.T) {
-	raw := "1:proj-a:4:0\n2:proj-b:2:1\n3:proj-c:3:0\n"
+	raw := "proj-a:4:0\nproj-b:2:1\nproj-c:3:0\n"
 	sessions := ParseSessionList(raw)
 	if len(sessions) != 3 {
 		t.Fatalf("expected 3 sessions, got %d", len(sessions))
