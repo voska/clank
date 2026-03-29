@@ -315,41 +315,75 @@ func (m Model) pollTmux() tea.Cmd {
 
 func (m Model) scrapeAgents() tea.Cmd {
 	return func() tea.Msg {
+		// Single tmux call to get ALL panes across all sessions
+		allPanes, err := m.mux.AllPanes()
+		if err != nil {
+			logger.Log("scrape error: %v", err)
+			return nil
+		}
+
+		// Group by session:window, find agent panes
+		type agentPane struct {
+			name      string
+			session   string
+			window    string
+			winIndex  int
+			paneIndex int
+		}
+		var agents []agentPane
+		seen := make(map[string]bool) // "session:window" -> has agent
+
+		for _, p := range allPanes {
+			key := p.Session + ":" + p.Window
+			if seen[key] {
+				continue
+			}
+			agentName := detect.IdentifyAgent(p.Command)
+			if agentName != "" {
+				seen[key] = true
+				agents = append(agents, agentPane{
+					name:      agentName,
+					session:   p.Session,
+					window:    p.Window,
+					winIndex:  p.WinIndex,
+					paneIndex: p.PaneIndex,
+				})
+			}
+		}
+
+		// Clear agents from windows that no longer have one
 		sessions := m.store.Sessions()
 		for _, sess := range sessions {
 			for _, win := range sess.Windows {
-				cmds, err := m.mux.PaneCommands(sess.Name, win.Index)
-				if err != nil {
+				key := sess.Name + ":" + win.Name
+				if !seen[key] && win.Agent != nil && win.Agent.State != detect.StateDone {
+					logger.Log("scrape %s agent gone, clearing", key)
+					m.store.ClearAgent(sess.Name, win.Name)
+				}
+			}
+		}
+
+		// Scrape content for each agent pane (only the ones that need it)
+		for _, ap := range agents {
+			// Skip if hook data is fresh
+			sessions := m.store.Sessions()
+			for _, sess := range sessions {
+				if sess.Name != ap.session {
 					continue
 				}
-
-				agentName := ""
-				agentPaneIdx := -1
-				for i, cmd := range cmds {
-					name := detect.IdentifyAgent(cmd)
-					if name != "" {
-						agentName = name
-						agentPaneIdx = i
-						break
+				for _, win := range sess.Windows {
+					if win.Name != ap.window {
+						continue
+					}
+					if win.Agent != nil && win.Agent.FromHook && time.Since(win.Agent.LastChanged) < 5*time.Second {
+						logger.Log("scrape %s:%s skipping — hook fresh", ap.session, ap.window)
+						goto nextAgent
 					}
 				}
+			}
 
-				if agentName == "" {
-					if win.Agent != nil && win.Agent.State != detect.StateDone {
-						logger.Log("scrape %s:%s agent gone, clearing", sess.Name, win.Name)
-						m.store.ClearAgent(sess.Name, win.Name)
-					}
-					continue
-				}
-
-				// If a hook recently set the state (within 5s), don't overwrite with scrape data
-				existing := win.Agent
-				if existing != nil && existing.FromHook && time.Since(existing.LastChanged) < 5*time.Second {
-					logger.Log("scrape %s:%s skipping — hook data is fresh (%s ago)", sess.Name, win.Name, time.Since(existing.LastChanged).Round(time.Millisecond))
-					continue
-				}
-
-				content, err := m.mux.CapturePaneByIndex(sess.Name, win.Index, agentPaneIdx, 30)
+			{
+				content, err := m.mux.CapturePaneByIndex(ap.session, ap.winIndex, ap.paneIndex, 30)
 				if err != nil {
 					continue
 				}
@@ -362,19 +396,32 @@ func (m Model) scrapeAgents() tea.Cmd {
 					agentState = detect.StateDone
 				}
 
-				logger.Log("scrape %s:%s agent=%s state=%s reason=%s", sess.Name, win.Name, agentName, agentState, reason)
+				logger.Log("scrape %s:%s agent=%s state=%s", ap.session, ap.window, ap.name, agentState)
 
-				info := state.AgentInfo{
-					Name:       agentName,
+				// Preserve hook metadata if it exists
+				var model string
+				var ctxPct float64
+				for _, sess := range m.store.Sessions() {
+					if sess.Name != ap.session {
+						continue
+					}
+					for _, win := range sess.Windows {
+						if win.Name == ap.window && win.Agent != nil {
+							model = win.Agent.Model
+							ctxPct = win.Agent.ContextPct
+						}
+					}
+				}
+
+				m.store.SetAgentState(ap.session, ap.window, state.AgentInfo{
+					Name:       ap.name,
 					State:      agentState,
 					WaitReason: reason,
-				}
-				if existing != nil {
-					info.Model = existing.Model
-					info.ContextPct = existing.ContextPct
-				}
-				m.store.SetAgentState(sess.Name, win.Name, info)
+					Model:      model,
+					ContextPct: ctxPct,
+				})
 			}
+		nextAgent:
 		}
 		return nil
 	}

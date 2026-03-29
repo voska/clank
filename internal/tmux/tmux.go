@@ -20,9 +20,19 @@ type Window struct {
 	Active bool
 }
 
+// PaneInfo holds the result of a bulk pane query.
+type PaneInfo struct {
+	Session   string
+	Window    string
+	WinIndex  int
+	PaneIndex int
+	Command   string
+}
+
 type Mux interface {
 	ListSessions() ([]Session, error)
 	ListWindows(session string) ([]Window, error)
+	AllPanes() ([]PaneInfo, error)
 	PaneCommand(target string) (string, error)
 	PaneCommands(session string, windowIndex int) ([]string, error)
 	CapturePane(target string, lines int) (string, error)
@@ -46,6 +56,34 @@ func (l *Live) ListWindows(session string) ([]Window, error) {
 		return nil, fmt.Errorf("list-windows %s: %w", session, err)
 	}
 	return ParseWindowList(out), nil
+}
+
+// AllPanes returns every pane across all sessions in a single tmux call.
+func (l *Live) AllPanes() ([]PaneInfo, error) {
+	out, err := run("list-panes", "-a", "-F", "#{session_name}:#{window_name}:#{window_index}:#{pane_index}:#{pane_current_command}")
+	if err != nil {
+		return nil, fmt.Errorf("list-panes -a: %w", err)
+	}
+	var panes []PaneInfo
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, ":", 5)
+		if len(parts) < 5 {
+			continue
+		}
+		winIdx, _ := strconv.Atoi(parts[2])
+		paneIdx, _ := strconv.Atoi(parts[3])
+		panes = append(panes, PaneInfo{
+			Session:   parts[0],
+			Window:    parts[1],
+			WinIndex:  winIdx,
+			PaneIndex: paneIdx,
+			Command:   parts[4],
+		})
+	}
+	return panes, nil
 }
 
 func (l *Live) PaneCommand(target string) (string, error) {
