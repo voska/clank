@@ -49,13 +49,11 @@ func renderSessionHeader(index int, name string, collapsed bool, highestState de
 }
 
 func renderWindowLine(win state.WindowState, width int, selected bool, spinnerFrame int) string {
-	var left string
+	indent := "    "
+
+	var unseenMark string
 	if win.HasUnseen {
-		left = "  " + indicatorUnseen.Render(glyphUnseen) + " "
-	} else if win.Active {
-		left = "  " + cursorStyle.Render(glyphActive) + " "
-	} else {
-		left = "    "
+		unseenMark = indicatorUnseen.Render(glyphUnseen) + " "
 	}
 
 	name := win.Name
@@ -67,7 +65,7 @@ func renderWindowLine(win state.WindowState, width int, selected bool, spinnerFr
 		name = dimStyle.Render(name)
 	}
 
-	left = left + name
+	left := indent + unseenMark + name
 
 	if win.Agent == nil {
 		return left
