@@ -11,41 +11,15 @@ import (
 )
 
 func renderSessionHeader(index int, name string, collapsed bool, highestState detect.State, selected bool, width int) string {
-	toggle := glyphExpanded
-	if collapsed {
-		toggle = glyphCollapsed
-	}
-
 	prefix := fmt.Sprintf("%d", index)
 	styledName := sessionStyle.Render(name)
-	if collapsed {
-		styledName = sessionCollapsedStyle.Render(name)
-	}
 	if selected {
 		prefix = cursorStyle.Render(prefix)
 		styledName = cursorStyle.Render(name)
 	}
 
 	left := fmt.Sprintf(" %s %s", prefix, styledName)
-
-	var stateStr string
-	if collapsed && highestState != "" {
-		stateStr = renderStateIcon(highestState, 0)
-	}
-
-	right := dimStyle.Render(toggle)
-	if stateStr != "" {
-		right = stateStr + " " + right
-	}
-
-	leftLen := lipgloss.Width(left)
-	rightLen := lipgloss.Width(right)
-	gap := width - leftLen - rightLen
-	if gap < 1 {
-		gap = 1
-	}
-
-	return left + strings.Repeat(" ", gap) + right
+	return left
 }
 
 func renderWindowLine(win state.WindowState, width int, selected bool, spinnerFrame int) string {
@@ -71,23 +45,26 @@ func renderWindowLine(win state.WindowState, width int, selected bool, spinnerFr
 		return left
 	}
 
-	indicator := renderStateIcon(win.Agent.State, spinnerFrame)
+	icon := renderStateIcon(win.Agent.State, spinnerFrame)
 
-	// Add timer for running/waiting states
+	// Timer on the left of the icon for running/waiting
+	var right string
 	if win.Agent.State == detect.StateRunning || win.Agent.State == detect.StateWaiting {
 		elapsed := time.Since(win.Agent.LastChanged)
 		timer := formatDuration(elapsed)
-		indicator = indicator + " " + dimStyle.Render(timer)
+		right = dimStyle.Render(timer) + " " + icon
+	} else {
+		right = icon
 	}
 
 	leftLen := lipgloss.Width(left)
-	rightLen := lipgloss.Width(indicator)
+	rightLen := lipgloss.Width(right)
 	gap := width - leftLen - rightLen
 	if gap < 1 {
 		gap = 1
 	}
 
-	return left + strings.Repeat(" ", gap) + indicator
+	return left + strings.Repeat(" ", gap) + right
 }
 
 func renderStateIcon(s detect.State, spinnerFrame int) string {

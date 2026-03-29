@@ -90,8 +90,13 @@ func DetectState(content string) (State, string) {
 		return StateDone, ""
 	}
 
+	// Done: Droid idle — "? for help" in status bar or bare ">" prompt
+	if strings.Contains(tail, "? for help") {
+		return StateDone, ""
+	}
+
 	// Done: > prompt on its own line
-	if strings.Contains(tail, "\n> \n") {
+	if strings.Contains(tail, "\n> \n") || strings.Contains(tail, "│ >") {
 		return StateDone, ""
 	}
 

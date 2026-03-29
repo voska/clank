@@ -79,17 +79,15 @@ func (m *Model) rebuildItems() {
 		m.screenRows = append(m.screenRows, len(m.items))
 		m.items = append(m.items, item{isSession: true, session: sess.Name, sessIndex: sess.Index})
 
-		if !sess.Collapsed {
-			for _, win := range sess.Windows {
-				m.screenRows = append(m.screenRows, len(m.items))
-				m.items = append(m.items, item{
-					isSession: false,
-					session:   sess.Name,
-					window:    win.Name,
-					sessIndex: sess.Index,
-					winIndex:  win.Index,
-				})
-			}
+		for _, win := range sess.Windows {
+			m.screenRows = append(m.screenRows, len(m.items))
+			m.items = append(m.items, item{
+				isSession: false,
+				session:   sess.Name,
+				window:    win.Name,
+				sessIndex: sess.Index,
+				winIndex:  win.Index,
+			})
 		}
 
 		if si < len(sessions)-1 {
@@ -146,19 +144,16 @@ func (m Model) View() string {
 
 	itemIdx := 0
 	for si, sess := range sessions {
-		hp := m.store.HighestPriority(sess.Name)
 		selected := m.cursor == itemIdx
-		b.WriteString(renderSessionHeader(sess.Index, sess.Name, sess.Collapsed, hp, selected, m.width))
+		b.WriteString(renderSessionHeader(sess.Index, sess.Name, false, "", selected, m.width))
 		b.WriteString("\n")
 		itemIdx++
 
-		if !sess.Collapsed {
-			for _, win := range sess.Windows {
-				selected = m.cursor == itemIdx
-				b.WriteString(renderWindowLine(win, m.width, selected, m.spinnerFrame))
-				b.WriteString("\n")
-				itemIdx++
-			}
+		for _, win := range sess.Windows {
+			selected = m.cursor == itemIdx
+			b.WriteString(renderWindowLine(win, m.width, selected, m.spinnerFrame))
+			b.WriteString("\n")
+			itemIdx++
 		}
 
 		if si < len(sessions)-1 {
@@ -181,23 +176,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.cursor > 0 {
 			m.cursor--
 		}
-	case "enter":
+	case "enter", " ":
 		if m.cursor >= 0 && m.cursor < len(m.items) {
 			it := m.items[m.cursor]
 			if it.isSession {
-				m.store.ToggleCollapse(it.session)
-				m.rebuildItems()
+				m.mux.SwitchWindow(it.session, 0)
 			} else {
 				m.mux.SwitchWindow(it.session, it.winIndex)
 				m.store.ClearUnseen(it.session, it.window)
-			}
-		}
-	case " ":
-		if m.cursor >= 0 && m.cursor < len(m.items) {
-			it := m.items[m.cursor]
-			if it.isSession {
-				m.store.ToggleCollapse(it.session)
-				m.rebuildItems()
 			}
 		}
 	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
@@ -227,8 +213,7 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	m.cursor = idx
 	it := m.items[idx]
 	if it.isSession {
-		m.store.ToggleCollapse(it.session)
-		m.rebuildItems()
+		m.mux.SwitchWindow(it.session, 0)
 	} else {
 		m.mux.SwitchWindow(it.session, it.winIndex)
 		m.store.ClearUnseen(it.session, it.window)
