@@ -341,8 +341,11 @@ func (m Model) scrapeAgents() tea.Cmd {
 					continue
 				}
 				agentState, reason := detect.DetectState(content)
-				if agentState == detect.StateUnknown {
-					agentState = detect.StateRunning
+				// Tier 1 confirmed agent process exists, so:
+				// - Unknown → assume running (fallback)
+				// - Exited → agent is idle, not actually exited (process is still there)
+				if agentState == detect.StateUnknown || agentState == detect.StateExited {
+					agentState = detect.StateDone
 				}
 
 				existing := win.Agent

@@ -69,17 +69,15 @@ func DetectState(content string) (State, string) {
 		return StateWaiting, "decision"
 	}
 
-	trimmed := strings.TrimRight(tail, " \t\n")
-	if strings.HasSuffix(trimmed, ">") || strings.HasSuffix(trimmed, "> ") {
-		lastLine := lastNonEmptyLine(tail)
-		if strings.TrimSpace(lastLine) == ">" {
-			return StateDone, ""
-		}
-	}
-
+	// Done/idle: Claude Code's prompt is ">" or "❯" at the end
 	lastLine := lastNonEmptyLine(tail)
 	trimmedLine := strings.TrimSpace(lastLine)
-	if trimmedLine == "$" || trimmedLine == "%" || trimmedLine == "❯" ||
+	if trimmedLine == ">" || trimmedLine == "❯" {
+		return StateDone, ""
+	}
+
+	// Exited: bare shell prompt (only "$" or "%" without ">" or "❯")
+	if trimmedLine == "$" || trimmedLine == "%" ||
 		strings.HasSuffix(trimmedLine, "$ ") || strings.HasSuffix(trimmedLine, "$") {
 		return StateExited, ""
 	}
