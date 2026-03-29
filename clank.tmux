@@ -1,46 +1,27 @@
 #!/usr/bin/env bash
-# clank.tmux — TPM plugin bootstrap
+# clank.tmux — toggle clank sidebar pane
 CURRENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLANK_BIN="$CURRENT_DIR/bin/clank"
-CLANK_WIDTH=$(tmux show-option -gqv "@clank-width" 2>/dev/null || echo "30")
-CLANK_POSITION=$(tmux show-option -gqv "@clank-position" 2>/dev/null || echo "left")
-STASH_SESSION="_clank"
 
-if [ ! -x "$CLANK_BIN" ]; then
-  "$CURRENT_DIR/scripts/install.sh" "$CURRENT_DIR/bin"
-fi
+_width=$(tmux show-option -gqv "@clank-width" 2>/dev/null)
+WIDTH="${_width:-30}"
 
-if ! tmux has-session -t "$STASH_SESSION" 2>/dev/null; then
-  tmux new-session -d -s "$STASH_SESSION" -x 200 -y 50 "$CLANK_BIN --width $CLANK_WIDTH"
-fi
+# Find existing clank pane in current window
+clank_pane=$(tmux list-panes -F '#{pane_id} #{pane_current_command}' | awk '$2 == "clank" {print $1; exit}')
 
-toggle_sidebar() {
-  local clank_pane
-  clank_pane=$(tmux list-panes -F '#{pane_id}:#{pane_current_command}' | grep ':clank$' | head -1 | cut -d: -f1)
-
-  if [ -n "$clank_pane" ]; then
-    tmux join-pane -d -t "${STASH_SESSION}:0.0" -s "$clank_pane"
-  else
-    local stash_pane="${STASH_SESSION}:0.0"
-    if [ "$CLANK_POSITION" = "right" ]; then
-      tmux join-pane -h -l "$CLANK_WIDTH" -t "$(tmux display-message -p '#{pane_id}')" -s "$stash_pane"
-    else
-      tmux join-pane -hb -l "$CLANK_WIDTH" -t "$(tmux display-message -p '#{pane_id}')" -s "$stash_pane"
-    fi
-  fi
-}
-
-case "${1:-}" in
+case "${1:-toggle}" in
   toggle)
-    toggle_sidebar
+    if [ -n "$clank_pane" ]; then
+      tmux kill-pane -t "$clank_pane"
+    else
+      tmux split-window -hb -l "$WIDTH" "$CLANK_BIN --width $WIDTH"
+    fi
     ;;
   focus)
-    toggle_sidebar
-    clank_pane=$(tmux list-panes -F '#{pane_id}:#{pane_current_command}' | grep ':clank$' | head -1 | cut -d: -f1)
+    if [ -z "$clank_pane" ]; then
+      tmux split-window -hb -l "$WIDTH" "$CLANK_BIN --width $WIDTH"
+    fi
+    clank_pane=$(tmux list-panes -F '#{pane_id} #{pane_current_command}' | awk '$2 == "clank" {print $1; exit}')
     [ -n "$clank_pane" ] && tmux select-pane -t "$clank_pane"
-    ;;
-  *)
-    tmux bind-key -T prefix C-s run-shell "$CURRENT_DIR/clank.tmux toggle"
-    tmux bind-key -T prefix C-f run-shell "$CURRENT_DIR/clank.tmux focus"
     ;;
 esac
