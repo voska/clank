@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/voska/clank/internal/detect"
@@ -27,10 +28,9 @@ func renderSessionHeader(index int, name string, collapsed bool, highestState de
 
 	left := fmt.Sprintf(" %s %s", prefix, styledName)
 
-	// If collapsed and there's agent activity, show rolled-up state
 	var stateStr string
 	if collapsed && highestState != "" {
-		stateStr = renderStateIndicator(highestState, 0)
+		stateStr = renderStateIcon(highestState, 0)
 	}
 
 	right := dimStyle.Render(toggle)
@@ -71,7 +71,15 @@ func renderWindowLine(win state.WindowState, width int, selected bool, spinnerFr
 		return left
 	}
 
-	indicator := renderStateIndicator(win.Agent.State, spinnerFrame)
+	indicator := renderStateIcon(win.Agent.State, spinnerFrame)
+
+	// Add timer for running/waiting states
+	if win.Agent.State == detect.StateRunning || win.Agent.State == detect.StateWaiting {
+		elapsed := time.Since(win.Agent.LastChanged)
+		timer := formatDuration(elapsed)
+		indicator = indicator + " " + dimStyle.Render(timer)
+	}
+
 	leftLen := lipgloss.Width(left)
 	rightLen := lipgloss.Width(indicator)
 	gap := width - leftLen - rightLen
@@ -82,20 +90,31 @@ func renderWindowLine(win state.WindowState, width int, selected bool, spinnerFr
 	return left + strings.Repeat(" ", gap) + indicator
 }
 
-func renderStateIndicator(s detect.State, spinnerFrame int) string {
+func renderStateIcon(s detect.State, spinnerFrame int) string {
 	switch s {
 	case detect.StateRunning:
 		glyph := spinnerFrames[spinnerFrame%len(spinnerFrames)]
-		return indicatorRunning.Render(glyph + " running")
+		return indicatorRunning.Render(glyph)
 	case detect.StateWaiting:
-		return indicatorWaiting.Render(glyphWaiting + " waiting")
+		return indicatorWaiting.Render(glyphWaiting)
 	case detect.StateDone:
-		return indicatorDone.Render(glyphDone + " done")
+		return indicatorDone.Render(glyphDone)
 	case detect.StateError:
-		return indicatorError.Render(glyphError + " error")
+		return indicatorError.Render(glyphError)
 	case detect.StateExited:
-		return dimStyle.Render("exited")
+		return dimStyle.Render("·")
 	default:
 		return ""
 	}
+}
+
+func formatDuration(d time.Duration) string {
+	d = d.Round(time.Second)
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	}
+	return fmt.Sprintf("%dh%dm", int(d.Hours()), int(d.Minutes())%60)
 }

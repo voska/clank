@@ -29,18 +29,32 @@ case "$EVENT" in
     sock_send "{\"session\":\"$SESS\",\"window\":\"$WIN\",\"state\":\"running\",\"agent\":\"claude\"}"
     ;;
   notification)
-    REASON=$(printf '%s' "$INPUT" | jq -r '.notification_type // "input"' 2>/dev/null || echo "input")
-    sock_send "{\"session\":\"$SESS\",\"window\":\"$WIN\",\"state\":\"waiting\",\"reason\":\"$REASON\",\"agent\":\"claude\"}"
-    ghostty_notify "$SESS > $WIN" "needs ${REASON//_/ }"
+    TYPE=$(printf '%s' "$INPUT" | jq -r '.notification_type // "unknown"' 2>/dev/null || echo "unknown")
+    case "$TYPE" in
+      idle_prompt)
+        sock_send "{\"session\":\"$SESS\",\"window\":\"$WIN\",\"state\":\"done\",\"agent\":\"claude\"}"
+        ghostty_notify "$SESS > $WIN" "finished"
+        ;;
+      permission_prompt)
+        sock_send "{\"session\":\"$SESS\",\"window\":\"$WIN\",\"state\":\"waiting\",\"reason\":\"permission\",\"agent\":\"claude\"}"
+        ghostty_notify "$SESS > $WIN" "needs permission"
+        ;;
+      *)
+        sock_send "{\"session\":\"$SESS\",\"window\":\"$WIN\",\"state\":\"waiting\",\"reason\":\"$TYPE\",\"agent\":\"claude\"}"
+        ghostty_notify "$SESS > $WIN" "needs attention"
+        ;;
+    esac
     ;;
   stop)
     sock_send "{\"session\":\"$SESS\",\"window\":\"$WIN\",\"state\":\"done\",\"agent\":\"claude\"}"
     ghostty_notify "$SESS > $WIN" "finished"
     ;;
   statusline)
-    CTX=$(printf '%s' "$INPUT" | jq -r 'if .contextWindow then (.contextWindow.used / .contextWindow.total) else 0 end' 2>/dev/null || echo "0")
-    MODEL=$(printf '%s' "$INPUT" | jq -r '.model // ""' 2>/dev/null | sed 's/claude-//' | sed 's/-[0-9]*$//')
-    sock_send "{\"session\":\"$SESS\",\"window\":\"$WIN\",\"state\":\"running\",\"agent\":\"claude\",\"model\":\"$MODEL\",\"context_pct\":$CTX}"
+    CTX=$(printf '%s' "$INPUT" | jq -r '.context_window.used_percentage // 0' 2>/dev/null || echo "0")
+    MODEL=$(printf '%s' "$INPUT" | jq -r '.model.id // ""' 2>/dev/null | sed 's/claude-//' | sed 's/-[0-9]*$//')
+    if [ -n "$MODEL" ] && [ "$MODEL" != "" ]; then
+      sock_send "{\"session\":\"$SESS\",\"window\":\"$WIN\",\"agent\":\"claude\",\"model\":\"$MODEL\",\"context_pct\":$CTX}"
+    fi
     ;;
   *)
     echo "Usage: agent-hook-bridge {submit|notification|stop|statusline}" >&2

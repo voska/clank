@@ -237,7 +237,32 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleSocketEvent(ev socket.Event) {
-	logger.Log("hook  %s:%s agent=%s state=%s reason=%s", ev.Session, ev.Window, ev.Agent, ev.State, ev.Reason)
+	logger.Log("hook  %s:%s agent=%s state=%s reason=%s model=%s ctx=%.0f", ev.Session, ev.Window, ev.Agent, ev.State, ev.Reason, ev.Model, ev.ContextPct)
+
+	// Metadata-only event (statusline): update model/context without changing state
+	if ev.State == "" {
+		sessions := m.store.Sessions()
+		for _, sess := range sessions {
+			if sess.Name != ev.Session {
+				continue
+			}
+			for _, win := range sess.Windows {
+				if win.Name == ev.Window && win.Agent != nil {
+					info := *win.Agent
+					if ev.Model != "" {
+						info.Model = ev.Model
+					}
+					if ev.ContextPct > 0 {
+						info.ContextPct = ev.ContextPct
+					}
+					m.store.SetAgentState(ev.Session, ev.Window, info)
+					return
+				}
+			}
+		}
+		return
+	}
+
 	info := state.AgentInfo{
 		Name:       ev.Agent,
 		State:      detect.State(ev.State),
@@ -375,8 +400,8 @@ func (m Model) scrapeAgents() tea.Cmd {
 					if win.Name != ap.window {
 						continue
 					}
-					if win.Agent != nil && win.Agent.FromHook && time.Since(win.Agent.LastChanged) < 5*time.Second {
-						logger.Log("scrape %s:%s skipping — hook fresh", ap.session, ap.window)
+					if win.Agent != nil && win.Agent.FromHook {
+						logger.Log("scrape %s:%s skipping — hook is authoritative", ap.session, ap.window)
 						goto nextAgent
 					}
 				}
