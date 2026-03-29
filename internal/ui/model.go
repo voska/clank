@@ -1,0 +1,283 @@
+package ui
+
+import (
+	"fmt"
+	"strings"
+	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/voska/clank/internal/detect"
+	"github.com/voska/clank/internal/socket"
+	"github.com/voska/clank/internal/state"
+	"github.com/voska/clank/internal/tmux"
+)
+
+type Config struct {
+	Width          int
+	PollInterval   time.Duration
+	ScrapeInterval time.Duration
+}
+
+type Model struct {
+	config       Config
+	store        *state.Store
+	mux          tmux.Mux
+	events       <-chan socket.Event
+	cursor       int
+	spinnerFrame int
+	width        int
+	height       int
+	items        []item
+}
+
+type item struct {
+	isSession bool
+	session   string
+	window    string
+	sessIndex int
+	winIndex  int
+}
+
+type tickMsg struct{}
+type scrapeMsg struct{}
+type spinnerMsg struct{}
+type socketEventMsg socket.Event
+
+func NewModel(store *state.Store, mux tmux.Mux, events <-chan socket.Event, config Config) Model {
+	return Model{
+		config: config,
+		store:  store,
+		mux:    mux,
+		events: events,
+		width:  config.Width,
+	}
+}
+
+func (m Model) Init() tea.Cmd {
+	return tea.Batch(
+		m.pollTmux(),
+		m.tickCmd(),
+		m.scrapeCmd(),
+		m.spinnerCmd(),
+		m.listenSocket(),
+	)
+}
+
+func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		return m.handleKey(msg)
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		return m, nil
+	case tickMsg:
+		return m, tea.Batch(m.pollTmux(), m.tickCmd())
+	case scrapeMsg:
+		return m, tea.Batch(m.scrapeAgents(), m.scrapeCmd())
+	case spinnerMsg:
+		m.spinnerFrame++
+		return m, m.spinnerCmd()
+	case socketEventMsg:
+		m.handleSocketEvent(socket.Event(msg))
+		return m, m.listenSocket()
+	}
+	return m, nil
+}
+
+func (m Model) View() string {
+	sessions := m.store.Sessions()
+	m.items = nil
+
+	var b strings.Builder
+
+	for _, sess := range sessions {
+		hp := m.store.HighestPriority(sess.Name)
+		selected := m.cursor == len(m.items)
+		b.WriteString(renderSessionHeader(sess.Index, sess.Name, sess.Collapsed, hp, selected))
+		b.WriteString("\n")
+		m.items = append(m.items, item{isSession: true, session: sess.Name, sessIndex: sess.Index})
+
+		if !sess.Collapsed {
+			for _, win := range sess.Windows {
+				selected = m.cursor == len(m.items)
+				b.WriteString(renderWindowLine(win, m.width, selected, m.spinnerFrame))
+				b.WriteString("\n")
+				m.items = append(m.items, item{
+					isSession: false,
+					session:   sess.Name,
+					window:    win.Name,
+					sessIndex: sess.Index,
+					winIndex:  win.Index,
+				})
+			}
+			b.WriteString("\n")
+		}
+	}
+
+	return b.String()
+}
+
+func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "q", "ctrl+c":
+		return m, tea.Quit
+	case "j", "down":
+		if m.cursor < len(m.items)-1 {
+			m.cursor++
+		}
+	case "k", "up":
+		if m.cursor > 0 {
+			m.cursor--
+		}
+	case "enter":
+		if m.cursor < len(m.items) {
+			it := m.items[m.cursor]
+			if it.isSession {
+				m.store.ToggleCollapse(it.session)
+			} else {
+				m.mux.SwitchWindow(it.session, it.winIndex)
+				m.store.ClearUnseen(it.session, it.window)
+			}
+		}
+	case "space":
+		if m.cursor < len(m.items) {
+			it := m.items[m.cursor]
+			if it.isSession {
+				m.store.ToggleCollapse(it.session)
+			}
+		}
+	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+		idx := int(msg.String()[0] - '0')
+		for i, it := range m.items {
+			if it.isSession && it.sessIndex == idx {
+				m.cursor = i
+				break
+			}
+		}
+	}
+	return m, nil
+}
+
+func (m Model) handleSocketEvent(ev socket.Event) {
+	info := state.AgentInfo{
+		Name:       ev.Agent,
+		State:      detect.State(ev.State),
+		WaitReason: ev.Reason,
+		Model:      ev.Model,
+		ContextPct: ev.ContextPct,
+	}
+	m.store.SetAgentState(ev.Session, ev.Window, info)
+}
+
+func (m Model) tickCmd() tea.Cmd {
+	return tea.Tick(m.config.PollInterval, func(time.Time) tea.Msg {
+		return tickMsg{}
+	})
+}
+
+func (m Model) scrapeCmd() tea.Cmd {
+	return tea.Tick(m.config.ScrapeInterval, func(time.Time) tea.Msg {
+		return scrapeMsg{}
+	})
+}
+
+func (m Model) spinnerCmd() tea.Cmd {
+	return tea.Tick(100*time.Millisecond, func(time.Time) tea.Msg {
+		return spinnerMsg{}
+	})
+}
+
+func (m Model) listenSocket() tea.Cmd {
+	return func() tea.Msg {
+		ev, ok := <-m.events
+		if !ok {
+			return nil
+		}
+		return socketEventMsg(ev)
+	}
+}
+
+func (m Model) pollTmux() tea.Cmd {
+	return func() tea.Msg {
+		sessions, err := m.mux.ListSessions()
+		if err != nil {
+			return nil
+		}
+
+		var snapshots []state.SessionSnapshot
+		for _, sess := range sessions {
+			if sess.Name == "_clank" {
+				continue
+			}
+			windows, err := m.mux.ListWindows(sess.Name)
+			if err != nil {
+				continue
+			}
+			snap := state.SessionSnapshot{
+				Name:  sess.Name,
+				Index: sess.Index,
+			}
+			for _, win := range windows {
+				snap.Windows = append(snap.Windows, state.WindowSnapshot{
+					Name:   win.Name,
+					Index:  win.Index,
+					Active: win.Active,
+				})
+			}
+			snapshots = append(snapshots, snap)
+		}
+		m.store.UpdateTree(snapshots)
+		return nil
+	}
+}
+
+func (m Model) scrapeAgents() tea.Cmd {
+	return func() tea.Msg {
+		sessions := m.store.Sessions()
+		for _, sess := range sessions {
+			for _, win := range sess.Windows {
+				target := fmt.Sprintf("%s:%d", sess.Name, win.Index)
+
+				cmd, err := m.mux.PaneCommand(target)
+				if err != nil {
+					continue
+				}
+				agentName := detect.IdentifyAgent(cmd)
+				if agentName == "" {
+					if win.Agent != nil && win.Agent.State != detect.StateDone {
+						m.store.ClearAgent(sess.Name, win.Name)
+					}
+					continue
+				}
+
+				content, err := m.mux.CapturePane(target, 20)
+				if err != nil {
+					continue
+				}
+				agentState, reason := detect.DetectState(content)
+				if agentState == detect.StateUnknown {
+					agentState = detect.StateRunning
+				}
+
+				existing := win.Agent
+				if existing != nil && existing.Model != "" {
+					m.store.SetAgentState(sess.Name, win.Name, state.AgentInfo{
+						Name:       agentName,
+						State:      agentState,
+						WaitReason: reason,
+						Model:      existing.Model,
+						ContextPct: existing.ContextPct,
+					})
+				} else {
+					m.store.SetAgentState(sess.Name, win.Name, state.AgentInfo{
+						Name:       agentName,
+						State:      agentState,
+						WaitReason: reason,
+					})
+				}
+			}
+		}
+		return nil
+	}
+}
