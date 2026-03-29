@@ -16,6 +16,11 @@ func TestIdentifyAgent(t *testing.T) {
 		{"vim", ""},
 		{"node", ""},
 		{"", ""},
+		{"2.1.87", "claude"},
+		{"1.0.0", "claude"},
+		{"10.22.345", "claude"},
+		{"2.1", ""},
+		{"v2.1.87", ""},
 	}
 	for _, tt := range tests {
 		got := IdentifyAgent(tt.command)

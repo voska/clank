@@ -1,6 +1,9 @@
 package detect
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
 
 type State string
 
@@ -20,8 +23,21 @@ var knownAgents = map[string]string{
 	"codex":  "codex",
 }
 
+// versionPattern matches version strings like "2.1.87" that Claude Code
+// reports via pane_current_command (tmux resolves the symlink to the version dir).
+var versionPattern = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
+
+// IdentifyAgent returns the agent name from a process/command name.
+// Handles both direct names ("claude", "droid") and Claude Code's
+// version-as-command-name quirk ("2.1.87").
 func IdentifyAgent(command string) string {
-	return knownAgents[command]
+	if agent, ok := knownAgents[command]; ok {
+		return agent
+	}
+	if versionPattern.MatchString(command) {
+		return "claude"
+	}
+	return ""
 }
 
 func DetectState(content string) (State, string) {
