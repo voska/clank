@@ -47,7 +47,7 @@ func DetectState(content string) (State, string) {
 	}
 	tail := strings.Join(lines[start:], "\n")
 
-	// Waiting: permission prompt (highest priority)
+	// Waiting: permission prompt (highest priority — check full content)
 	if strings.Contains(tail, "? Allow") || strings.Contains(tail, "Yes, allow") {
 		return StateWaiting, "permission"
 	}
@@ -55,30 +55,37 @@ func DetectState(content string) (State, string) {
 		return StateWaiting, "decision"
 	}
 
-	// Running: Unicode ellipsis followed by timing — "Thinking… (1m 32s · ↓ 790 tokens)"
-	// This catches ALL randomized spinner verbs (Clauding…, Sautéeing…, Pondering…, etc.)
-	if strings.Contains(tail, "\u2026 (") {
+	// Find the LAST ❯ prompt — everything above it is history.
+	// Only check for running indicators AFTER the last ❯.
+	recent := tail
+	if idx := strings.LastIndex(tail, "❯"); idx >= 0 {
+		recent = tail[idx:]
+	}
+
+	// Running: Unicode ellipsis followed by timing — "Thinking… (1m 32s)"
+	// Only in content AFTER the last ❯ prompt
+	if strings.Contains(recent, "\u2026 (") {
 		return StateRunning, ""
 	}
 
-	// Running: tool execution with ellipsis — "Running…" or "⎿  Running…"
-	if strings.Contains(tail, "Running\u2026") {
+	// Running: tool execution — "Running…"
+	if strings.Contains(recent, "Running\u2026") {
 		return StateRunning, ""
 	}
 
-	// Running: "esc to interrupt" (may appear in some terminal configs)
-	if strings.Contains(tail, "esc to interrupt") {
+	// Running: "esc to interrupt"
+	if strings.Contains(recent, "esc to interrupt") {
 		return StateRunning, ""
 	}
 
 	// Running: braille spinner characters
 	for _, ch := range []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"} {
-		if strings.Contains(tail, ch) {
+		if strings.Contains(recent, ch) {
 			return StateRunning, ""
 		}
 	}
 
-	// Done: ❯ prompt visible with no running indicators above
+	// Done: ❯ prompt visible with no running indicators after it
 	if strings.Contains(tail, "❯") {
 		return StateDone, ""
 	}
