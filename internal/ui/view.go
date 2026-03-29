@@ -25,11 +25,6 @@ func renderSessionHeader(index int, name string, collapsed bool, highestState de
 func renderWindowLine(win state.WindowState, width int, selected bool, spinnerFrame int) string {
 	indent := "    "
 
-	var unseenMark string
-	if win.HasUnseen {
-		unseenMark = indicatorUnseen.Render(glyphUnseen) + " "
-	}
-
 	name := win.Name
 	if selected {
 		name = cursorStyle.Render(name)
@@ -39,15 +34,19 @@ func renderWindowLine(win state.WindowState, width int, selected bool, spinnerFr
 		name = dimStyle.Render(name)
 	}
 
-	left := indent + unseenMark + name
+	left := indent + name
 
 	if win.Agent == nil {
 		return left
 	}
 
+	// Done + already seen = no indicator (idle, nothing to show)
+	if win.Agent.State == detect.StateDone && !win.HasUnseen {
+		return left
+	}
+
 	icon := renderStateIcon(win.Agent.State, spinnerFrame)
 
-	// Timer on the left of the icon for running/waiting
 	var right string
 	if win.Agent.State == detect.StateRunning || win.Agent.State == detect.StateWaiting {
 		elapsed := time.Since(win.Agent.LastChanged)

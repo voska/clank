@@ -319,6 +319,16 @@ func (m Model) pollTmux() tea.Cmd {
 			snapshots = append(snapshots, snap)
 		}
 		m.store.UpdateTree(snapshots)
+
+		// Auto-clear unseen when user visits a window (active = they're looking at it)
+		for _, snap := range snapshots {
+			for _, win := range snap.Windows {
+				if win.Active {
+					m.store.ClearUnseen(snap.Name, win.Name)
+				}
+			}
+		}
+
 		return nil
 	}
 }
