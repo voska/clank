@@ -37,18 +37,18 @@ func TestDetectState(t *testing.T) {
 		reason  string
 	}{
 		{
-			name:    "running: thinking with timer",
-			content: "output\n\n✢ Thinking\u2026 (1m 32s · ↓ 790 tokens)\n  ⎿  Tip: ...\n\n───\n❯ \n───\n  proj | Opus\n",
+			name:    "running: thinking with timer after prompt",
+			content: "old output\n───\n❯ what should I do?\n───\n✢ Thinking\u2026 (1m 32s · ↓ 790 tokens)\n  ⎿  Tip: ...\n",
 			want:    StateRunning,
 		},
 		{
-			name:    "running: random verb with timer",
-			content: "output\n\n✢ Sautéeing\u2026 (5s)\n\n───\n❯ \n───\n  proj | Opus\n",
+			name:    "running: random verb with timer after prompt",
+			content: "old output\n───\n❯ fix the bug\n───\n✢ Sautéeing\u2026 (5s)\n",
 			want:    StateRunning,
 		},
 		{
-			name:    "running: tool execution",
-			content: "⎿  Running\u2026\n\n✻ Clauding\u2026 (thought for 12s)\n\n───\n❯ \n───\n  proj | Opus\n",
+			name:    "running: tool execution after prompt",
+			content: "old output\n───\n❯ do it\n───\n⎿  Running\u2026\n",
 			want:    StateRunning,
 		},
 		{
