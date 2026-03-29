@@ -85,6 +85,44 @@ func TestCollapseToggle(t *testing.T) {
 	}
 }
 
+func TestUnseenStaysCleared(t *testing.T) {
+	s := New()
+	s.UpdateTree([]SessionSnapshot{
+		{Name: "sensai", Index: 1, Windows: []WindowSnapshot{
+			{Name: "dev", Index: 1, Active: false},
+		}},
+	})
+
+	// Agent finishes -> unseen = true
+	s.SetAgentState("sensai", "dev", AgentInfo{Name: "claude", State: detect.StateDone})
+	sessions := s.Sessions()
+	if !sessions[0].Windows[0].HasUnseen {
+		t.Fatal("expected unseen after state transition to done")
+	}
+
+	// User clicks -> clear unseen
+	s.ClearUnseen("sensai", "dev")
+	sessions = s.Sessions()
+	if sessions[0].Windows[0].HasUnseen {
+		t.Fatal("expected unseen cleared after click")
+	}
+
+	// Scrape runs again with same state (done -> done) -> unseen should NOT reappear
+	s.SetAgentState("sensai", "dev", AgentInfo{Name: "claude", State: detect.StateDone})
+	sessions = s.Sessions()
+	if sessions[0].Windows[0].HasUnseen {
+		t.Fatal("unseen should NOT reappear on repeated done state")
+	}
+
+	// Actual state change (done -> running) -> unseen should appear
+	s.SetAgentState("sensai", "dev", AgentInfo{Name: "claude", State: detect.StateRunning})
+	s.SetAgentState("sensai", "dev", AgentInfo{Name: "claude", State: detect.StateDone})
+	sessions = s.Sessions()
+	if !sessions[0].Windows[0].HasUnseen {
+		t.Fatal("expected unseen after real state transition running->done")
+	}
+}
+
 func TestHighestPriorityState(t *testing.T) {
 	s := New()
 	s.UpdateTree([]SessionSnapshot{
