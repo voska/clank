@@ -23,13 +23,8 @@ var knownAgents = map[string]string{
 	"codex":  "codex",
 }
 
-// versionPattern matches version strings like "2.1.87" that Claude Code
-// reports via pane_current_command (tmux resolves the symlink to the version dir).
 var versionPattern = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
 
-// IdentifyAgent returns the agent name from a process/command name.
-// Handles both direct names ("claude", "droid") and Claude Code's
-// version-as-command-name quirk ("2.1.87").
 func IdentifyAgent(command string) string {
 	if agent, ok := knownAgents[command]; ok {
 		return agent
@@ -40,43 +35,80 @@ func IdentifyAgent(command string) string {
 	return ""
 }
 
+// Claude Code active indicators — present tense with ellipsis means working
+var runningPatterns = []string{
+	"Running…",
+	"Thinking…",
+	"Clauding…",
+	"Pondering…",
+	"Befuddling…",
+	"Reasoning…",
+	"Planning…",
+	"Analyzing…",
+	"Searching…",
+	"Reading…",
+	"Writing…",
+	"Editing…",
+	"Executing…",
+	"Installing…",
+	"Compiling…",
+	"Building…",
+	"Testing…",
+}
+
 func DetectState(content string) (State, string) {
 	if content == "" {
 		return StateUnknown, ""
 	}
 
 	lines := strings.Split(content, "\n")
-	start := len(lines) - 20
+	start := len(lines) - 30
 	if start < 0 {
 		start = 0
 	}
 	tail := strings.Join(lines[start:], "\n")
 
+	// Waiting: permission prompt (check first — highest priority)
+	if strings.Contains(tail, "? Allow") || strings.Contains(tail, "Yes, allow") {
+		return StateWaiting, "permission"
+	}
+	if strings.Contains(tail, "No, and tell Claude what to do differently") {
+		return StateWaiting, "decision"
+	}
+
+	// Running: "esc to interrupt" (original pattern, may work in some terminals)
 	if strings.Contains(tail, "esc to interrupt") {
 		return StateRunning, ""
 	}
+
+	// Running: active spinner text (present tense with ellipsis)
+	for _, pattern := range runningPatterns {
+		if strings.Contains(tail, pattern) {
+			return StateRunning, ""
+		}
+	}
+
+	// Running: braille spinner characters
 	for _, ch := range []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"} {
 		if strings.Contains(tail, ch) {
 			return StateRunning, ""
 		}
 	}
 
-	if strings.Contains(tail, "? Allow") || strings.Contains(tail, "Yes, allow") {
-		return StateWaiting, "permission"
+	// Running: tool execution indicator (⎿ prefix with Running)
+	if strings.Contains(tail, "⎿") && strings.Contains(tail, "Running") {
+		return StateRunning, ""
 	}
 
-	if strings.Contains(tail, "No, and tell Claude what to do differently") {
-		return StateWaiting, "decision"
-	}
-
-	// Done/idle: Claude Code's prompt is ">" or "❯" at the end
+	// Done: Claude's idle prompt (❯ or >) visible with no running indicators
 	lastLine := lastNonEmptyLine(tail)
 	trimmedLine := strings.TrimSpace(lastLine)
-	if trimmedLine == ">" || trimmedLine == "❯" {
+	// The status bar is always the last non-empty content, so check lines above it
+	if strings.Contains(tail, "❯") || strings.Contains(tail, "\n> \n") {
 		return StateDone, ""
 	}
 
-	// Exited: bare shell prompt (only "$" or "%" without ">" or "❯")
+	// Exited: bare shell prompt
 	if trimmedLine == "$" || trimmedLine == "%" ||
 		strings.HasSuffix(trimmedLine, "$ ") || strings.HasSuffix(trimmedLine, "$") {
 		return StateExited, ""
