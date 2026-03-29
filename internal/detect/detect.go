@@ -35,27 +35,6 @@ func IdentifyAgent(command string) string {
 	return ""
 }
 
-// Claude Code active indicators — present tense with ellipsis means working
-var runningPatterns = []string{
-	"Running…",
-	"Thinking…",
-	"Clauding…",
-	"Pondering…",
-	"Befuddling…",
-	"Reasoning…",
-	"Planning…",
-	"Analyzing…",
-	"Searching…",
-	"Reading…",
-	"Writing…",
-	"Editing…",
-	"Executing…",
-	"Installing…",
-	"Compiling…",
-	"Building…",
-	"Testing…",
-}
-
 func DetectState(content string) (State, string) {
 	if content == "" {
 		return StateUnknown, ""
@@ -68,7 +47,7 @@ func DetectState(content string) (State, string) {
 	}
 	tail := strings.Join(lines[start:], "\n")
 
-	// Waiting: permission prompt (check first — highest priority)
+	// Waiting: permission prompt (highest priority)
 	if strings.Contains(tail, "? Allow") || strings.Contains(tail, "Yes, allow") {
 		return StateWaiting, "permission"
 	}
@@ -76,16 +55,20 @@ func DetectState(content string) (State, string) {
 		return StateWaiting, "decision"
 	}
 
-	// Running: "esc to interrupt" (original pattern, may work in some terminals)
-	if strings.Contains(tail, "esc to interrupt") {
+	// Running: Unicode ellipsis followed by timing — "Thinking… (1m 32s · ↓ 790 tokens)"
+	// This catches ALL randomized spinner verbs (Clauding…, Sautéeing…, Pondering…, etc.)
+	if strings.Contains(tail, "\u2026 (") {
 		return StateRunning, ""
 	}
 
-	// Running: active spinner text (present tense with ellipsis)
-	for _, pattern := range runningPatterns {
-		if strings.Contains(tail, pattern) {
-			return StateRunning, ""
-		}
+	// Running: tool execution with ellipsis — "Running…" or "⎿  Running…"
+	if strings.Contains(tail, "Running\u2026") {
+		return StateRunning, ""
+	}
+
+	// Running: "esc to interrupt" (may appear in some terminal configs)
+	if strings.Contains(tail, "esc to interrupt") {
+		return StateRunning, ""
 	}
 
 	// Running: braille spinner characters
@@ -95,20 +78,19 @@ func DetectState(content string) (State, string) {
 		}
 	}
 
-	// Running: tool execution indicator (⎿ prefix with Running)
-	if strings.Contains(tail, "⎿") && strings.Contains(tail, "Running") {
-		return StateRunning, ""
+	// Done: ❯ prompt visible with no running indicators above
+	if strings.Contains(tail, "❯") {
+		return StateDone, ""
 	}
 
-	// Done: Claude's idle prompt (❯ or >) visible with no running indicators
-	lastLine := lastNonEmptyLine(tail)
-	trimmedLine := strings.TrimSpace(lastLine)
-	// The status bar is always the last non-empty content, so check lines above it
-	if strings.Contains(tail, "❯") || strings.Contains(tail, "\n> \n") {
+	// Done: > prompt on its own line
+	if strings.Contains(tail, "\n> \n") {
 		return StateDone, ""
 	}
 
 	// Exited: bare shell prompt
+	lastLine := lastNonEmptyLine(tail)
+	trimmedLine := strings.TrimSpace(lastLine)
 	if trimmedLine == "$" || trimmedLine == "%" ||
 		strings.HasSuffix(trimmedLine, "$ ") || strings.HasSuffix(trimmedLine, "$") {
 		return StateExited, ""

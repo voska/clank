@@ -281,6 +281,7 @@ func (m Model) pollTmux() tea.Cmd {
 	return func() tea.Msg {
 		sessions, err := m.mux.ListSessions()
 		if err != nil {
+			logger.Log("poll  error listing sessions: %v", err)
 			return nil
 		}
 
@@ -291,6 +292,7 @@ func (m Model) pollTmux() tea.Cmd {
 			}
 			windows, err := m.mux.ListWindows(sess.Name)
 			if err != nil {
+				logger.Log("poll  error listing windows for %s: %v", sess.Name, err)
 				continue
 			}
 			snap := state.SessionSnapshot{
