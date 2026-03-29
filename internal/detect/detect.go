@@ -40,12 +40,7 @@ func DetectState(content string) (State, string) {
 		return StateUnknown, ""
 	}
 
-	lines := strings.Split(content, "\n")
-	start := len(lines) - 30
-	if start < 0 {
-		start = 0
-	}
-	tail := strings.Join(lines[start:], "\n")
+	tail := content
 
 	// Waiting: permission prompt (highest priority — check full content)
 	if strings.Contains(tail, "? Allow") || strings.Contains(tail, "Yes, allow") {
@@ -55,32 +50,25 @@ func DetectState(content string) (State, string) {
 		return StateWaiting, "decision"
 	}
 
-	// Find the LAST ❯ prompt — everything above it is history.
-	// Only check for running indicators AFTER the last ❯.
-	recent := tail
-	if idx := strings.LastIndex(tail, "❯"); idx >= 0 {
-		recent = tail[idx:]
-	}
-
 	// Running: Unicode ellipsis followed by timing — "Thinking… (1m 32s)"
-	// Only in content AFTER the last ❯ prompt
-	if strings.Contains(recent, "\u2026 (") {
+	// The … ( pattern only appears during active work, never in completed output
+	if strings.Contains(tail, "\u2026 (") {
 		return StateRunning, ""
 	}
 
 	// Running: tool execution — "Running…"
-	if strings.Contains(recent, "Running\u2026") {
+	if strings.Contains(tail, "Running\u2026") {
 		return StateRunning, ""
 	}
 
 	// Running: "esc to interrupt"
-	if strings.Contains(recent, "esc to interrupt") {
+	if strings.Contains(tail, "esc to interrupt") {
 		return StateRunning, ""
 	}
 
 	// Running: braille spinner characters
 	for _, ch := range []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"} {
-		if strings.Contains(recent, ch) {
+		if strings.Contains(tail, ch) {
 			return StateRunning, ""
 		}
 	}

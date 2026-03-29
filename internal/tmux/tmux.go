@@ -111,8 +111,8 @@ func (l *Live) PaneCommands(session string, windowIndex int) ([]string, error) {
 }
 
 func (l *Live) CapturePane(target string, lines int) (string, error) {
-	start := fmt.Sprintf("-%d", lines)
-	out, err := run("capture-pane", "-t", target, "-p", "-S", start)
+	// Capture visible pane content only (no scrollback history)
+	out, err := run("capture-pane", "-t", target, "-p")
 	if err != nil {
 		return "", fmt.Errorf("capture-pane %s: %w", target, err)
 	}
