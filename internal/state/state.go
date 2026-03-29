@@ -128,7 +128,12 @@ func (s *Store) SetAgentState(session, window string, info AgentInfo) {
 			if win.Name != window {
 				continue
 			}
-			info.LastChanged = time.Now()
+			existing := s.sessions[i].Windows[j].Agent
+			if existing == nil || existing.State != info.State {
+				info.LastChanged = time.Now()
+			} else {
+				info.LastChanged = existing.LastChanged
+			}
 			s.sessions[i].Windows[j].Agent = &info
 			if !win.Active {
 				s.sessions[i].Windows[j].HasUnseen = true

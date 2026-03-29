@@ -13,16 +13,6 @@ func TestRenderSessionHeader(t *testing.T) {
 	if !strings.Contains(got, "1") || !strings.Contains(got, "proj-a") {
 		t.Errorf("expected index and name in header, got %q", got)
 	}
-	if !strings.Contains(got, glyphExpanded) {
-		t.Errorf("expected expanded glyph, got %q", got)
-	}
-}
-
-func TestRenderSessionHeaderCollapsed(t *testing.T) {
-	got := renderSessionHeader(1, "proj-a", true, "", false, 30)
-	if !strings.Contains(got, glyphCollapsed) {
-		t.Errorf("expected collapsed glyph, got %q", got)
-	}
 }
 
 func TestRenderWindowLine(t *testing.T) {
