@@ -57,6 +57,11 @@ func TestDetectState(t *testing.T) {
 			want:    StateRunning,
 		},
 		{
+			name:    "running beats stale permission prompt",
+			content: "old output\n? Allow Read tool on file.go?\n  Yes, allow once\nmore output\n✢ Thinking\u2026 (5s)\n",
+			want:    StateRunning,
+		},
+		{
 			name:    "done: past tense completed",
 			content: "✻ Sautéed for 33s\n\n───\n❯ \n───\n  proj | Opus 4.6\n  ⏸ plan mode\n",
 			want:    StateDone,

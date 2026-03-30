@@ -42,16 +42,11 @@ func DetectState(content string) (State, string) {
 
 	tail := content
 
-	// Waiting: permission prompt (highest priority — check full content)
-	if strings.Contains(tail, "? Allow") || strings.Contains(tail, "Yes, allow") {
-		return StateWaiting, "permission"
-	}
-	if strings.Contains(tail, "No, and tell Claude what to do differently") {
-		return StateWaiting, "decision"
-	}
+	// Running checks FIRST — active work is the strongest signal.
+	// Old "? Allow" text can linger in visible output from previous turns,
+	// but running indicators only appear during active work.
 
 	// Running: Unicode ellipsis followed by timing — "Thinking… (1m 32s)"
-	// The … ( pattern only appears during active work, never in completed output
 	if strings.Contains(tail, "\u2026 (") {
 		return StateRunning, ""
 	}
@@ -71,6 +66,14 @@ func DetectState(content string) (State, string) {
 		if strings.Contains(tail, ch) {
 			return StateRunning, ""
 		}
+	}
+
+	// Waiting: permission prompt (only if NOT running)
+	if strings.Contains(tail, "? Allow") || strings.Contains(tail, "Yes, allow") {
+		return StateWaiting, "permission"
+	}
+	if strings.Contains(tail, "No, and tell Claude what to do differently") {
+		return StateWaiting, "decision"
 	}
 
 	// Done: ❯ prompt visible with no running indicators after it
