@@ -36,7 +36,12 @@ func main() {
 	defer logger.Close()
 	logger.Log("starting clank %s (width=%d poll=%s scrape=%s socket=%s)", version, *width, *pollInterval, *scrapeInterval, *socketPath)
 
+	const statePath = "/tmp/clank-state.json"
+
 	store := state.New()
+	if err := store.Load(statePath); err == nil {
+		logger.Log("restored state from %s", statePath)
+	}
 	mux := &tmux.Live{}
 
 	events := make(chan socket.Event, 100)
@@ -53,8 +58,19 @@ func main() {
 	}
 	model := ui.NewModel(store, mux, events, config)
 
+	// Save state periodically in background
+	go func() {
+		for {
+			time.Sleep(5 * time.Second)
+			if err := store.Save(statePath); err != nil {
+				logger.Log("save error: %v", err)
+			}
+		}
+	}()
+
 	p := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
 		log.Fatalf("clank: %v", err)
 	}
+	store.Save(statePath)
 }
