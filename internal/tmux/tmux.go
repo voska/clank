@@ -27,6 +27,7 @@ type PaneInfo struct {
 	WinIndex  int
 	PaneIndex int
 	Command   string
+	PanePID   int
 }
 
 type Mux interface {
@@ -61,7 +62,7 @@ func (l *Live) ListWindows(session string) ([]Window, error) {
 // AllPanes returns every pane across all sessions in a single tmux call.
 // Uses tab separator to handle colons in session/window names.
 func (l *Live) AllPanes() ([]PaneInfo, error) {
-	out, err := run("list-panes", "-a", "-F", "#{session_name}\t#{window_name}\t#{window_index}\t#{pane_index}\t#{pane_current_command}")
+	out, err := run("list-panes", "-a", "-F", "#{session_name}\t#{window_name}\t#{window_index}\t#{pane_index}\t#{pane_current_command}\t#{pane_pid}")
 	if err != nil {
 		return nil, fmt.Errorf("list-panes -a: %w", err)
 	}
@@ -70,18 +71,20 @@ func (l *Live) AllPanes() ([]PaneInfo, error) {
 		if line == "" {
 			continue
 		}
-		parts := strings.SplitN(line, "\t", 5)
-		if len(parts) < 5 {
+		parts := strings.SplitN(line, "\t", 6)
+		if len(parts) < 6 {
 			continue
 		}
 		winIdx, _ := strconv.Atoi(parts[2])
 		paneIdx, _ := strconv.Atoi(parts[3])
+		panePID, _ := strconv.Atoi(parts[5])
 		panes = append(panes, PaneInfo{
 			Session:   parts[0],
 			Window:    parts[1],
 			WinIndex:  winIdx,
 			PaneIndex: paneIdx,
 			Command:   parts[4],
+			PanePID:   panePID,
 		})
 	}
 	return panes, nil

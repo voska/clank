@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -12,6 +13,7 @@ import (
 	"github.com/voska/clank/internal/socket"
 	"github.com/voska/clank/internal/state"
 	"github.com/voska/clank/internal/tmux"
+	"github.com/voska/clank/internal/transcript"
 	"github.com/voska/clank/internal/ui"
 )
 
@@ -52,12 +54,25 @@ func main() {
 	}
 	defer listener.Close()
 
+	// Transcript watcher — primary detection for Claude Code
+	var tw *transcript.Watcher
+	tw, err = transcript.NewWatcher()
+	if err != nil {
+		logger.Log("warning: transcript watcher disabled: %v", err)
+	} else {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		go tw.Run(ctx)
+		defer tw.Close()
+		logger.Log("transcript watcher enabled")
+	}
+
 	config := ui.Config{
 		Width:          *width,
 		PollInterval:   *pollInterval,
 		ScrapeInterval: *scrapeInterval,
 	}
-	model := ui.NewModel(store, mux, events, config)
+	model := ui.NewModel(store, mux, events, config, tw)
 
 	// Save state periodically in background
 	go func() {

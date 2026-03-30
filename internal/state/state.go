@@ -16,7 +16,8 @@ type AgentInfo struct {
 	Model       string
 	ContextPct  float64
 	LastChanged time.Time
-	FromHook    bool // true if last update came from a hook (takes priority over scraping)
+	FromHook       bool // true if last update came from a hook
+	FromTranscript bool // true if last update came from JSONL transcript watching
 }
 
 type WindowState struct {
