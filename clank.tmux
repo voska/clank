@@ -25,12 +25,12 @@ ensure() {
     return
   fi
 
-  # Target the first pane in the current window so clank always lands on the far left
-  local first_pane
-  first_pane=$(tmux list-panes -F '#{pane_id}' 2>/dev/null | head -1)
-  # Don't join if first pane is already clank (would error)
-  [ "$first_pane" = "$pane" ] && return
-  tmux join-pane -hb -l "$WIDTH" -t "$first_pane" -s "$pane" 2>/dev/null
+  # Target the first pane that ISN'T clank, so clank lands on the far left
+  local target_pane
+  target_pane=$(tmux list-panes -F '#{pane_id} #{pane_current_command}' 2>/dev/null \
+    | awk '$2 != "clank" {print $1; exit}')
+  [ -z "$target_pane" ] && return
+  tmux join-pane -hb -l "$WIDTH" -t "$target_pane" -s "$pane" 2>/dev/null
 }
 
 toggle() {
