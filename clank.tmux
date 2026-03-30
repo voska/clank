@@ -35,7 +35,13 @@ ensure() {
   fi
 
   if in_current_window "$clank_pane"; then
-    log "ensure: clank already in current window"
+    # Ensure correct width (terminal size may differ across clients)
+    local cur_width
+    cur_width=$(tmux display-message -t "$clank_pane" -p '#{pane_width}' 2>/dev/null)
+    if [ "$cur_width" != "$WIDTH" ]; then
+      log "ensure: resizing clank $cur_width -> $WIDTH"
+      tmux resize-pane -t "$clank_pane" -x "$WIDTH" 2>/dev/null
+    fi
     return
   fi
 
@@ -44,16 +50,19 @@ ensure() {
   log "ensure: placeholder=$placeholder"
 
   if [ -n "$placeholder" ]; then
-    log "ensure: swap-pane (no resize) clank=$clank_pane placeholder=$placeholder"
+    log "ensure: swap-pane clank=$clank_pane placeholder=$placeholder"
     tmux swap-pane -s "$clank_pane" -t "$placeholder" 2>>"$LOG"
   else
-    log "ensure: FALLBACK join-pane (will resize!)"
+    log "ensure: join-pane clank=$clank_pane"
     local target_pane
     target_pane=$(tmux list-panes -F '#{pane_id} #{pane_current_command}' 2>/dev/null \
       | awk '$2 != "clank" {print $1; exit}')
     [ -z "$target_pane" ] && return
     tmux join-pane -hb -l "$WIDTH" -t "$target_pane" -s "$clank_pane" 2>>"$LOG"
   fi
+
+  # Ensure correct width regardless of client terminal size
+  tmux resize-pane -t "$clank_pane" -x "$WIDTH" 2>/dev/null
 }
 
 presplit() {
