@@ -3,9 +3,10 @@ package socket
 import (
 	"bufio"
 	"encoding/json"
-	"log"
 	"net"
 	"os"
+
+	"github.com/voska/clank/internal/logger"
 )
 
 type Event struct {
@@ -52,7 +53,7 @@ func (l *Listener) handle(conn net.Conn, events chan<- Event) {
 	for scanner.Scan() {
 		var ev Event
 		if err := json.Unmarshal(scanner.Bytes(), &ev); err != nil {
-			log.Printf("clank: invalid event JSON: %v", err)
+			logger.Log("socket: invalid JSON: %v", err)
 			continue
 		}
 		events <- ev

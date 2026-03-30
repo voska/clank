@@ -26,6 +26,15 @@ func renderWindowLine(win state.WindowState, width int, selected bool, spinnerFr
 	indent := "    "
 
 	name := win.Name
+	// Truncate long names to leave room for indicators
+	maxNameLen := width - 14 // indent(4) + gap(1) + timer(4) + space(1) + icon(1) + margin(3)
+	if maxNameLen < 8 {
+		maxNameLen = 8
+	}
+	if len(name) > maxNameLen {
+		name = name[:maxNameLen-1] + "…"
+	}
+
 	if selected {
 		name = cursorStyle.Render(name)
 	} else if win.Active {

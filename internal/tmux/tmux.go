@@ -43,7 +43,7 @@ type Mux interface {
 type Live struct{}
 
 func (l *Live) ListSessions() ([]Session, error) {
-	out, err := run("list-sessions", "-F", "#{session_name}:#{session_windows}:#{session_attached}")
+	out, err := run("list-sessions", "-F", "#{session_name}\t#{session_windows}\t#{session_attached}")
 	if err != nil {
 		return nil, fmt.Errorf("list-sessions: %w", err)
 	}
@@ -51,7 +51,7 @@ func (l *Live) ListSessions() ([]Session, error) {
 }
 
 func (l *Live) ListWindows(session string) ([]Window, error) {
-	out, err := run("list-windows", "-t", session, "-F", "#{window_index}:#{window_name}:#{window_active}")
+	out, err := run("list-windows", "-t", session, "-F", "#{window_index}\t#{window_name}\t#{window_active}")
 	if err != nil {
 		return nil, fmt.Errorf("list-windows %s: %w", session, err)
 	}
@@ -59,8 +59,9 @@ func (l *Live) ListWindows(session string) ([]Window, error) {
 }
 
 // AllPanes returns every pane across all sessions in a single tmux call.
+// Uses tab separator to handle colons in session/window names.
 func (l *Live) AllPanes() ([]PaneInfo, error) {
-	out, err := run("list-panes", "-a", "-F", "#{session_name}:#{window_name}:#{window_index}:#{pane_index}:#{pane_current_command}")
+	out, err := run("list-panes", "-a", "-F", "#{session_name}\t#{window_name}\t#{window_index}\t#{pane_index}\t#{pane_current_command}")
 	if err != nil {
 		return nil, fmt.Errorf("list-panes -a: %w", err)
 	}
@@ -69,7 +70,7 @@ func (l *Live) AllPanes() ([]PaneInfo, error) {
 		if line == "" {
 			continue
 		}
-		parts := strings.SplitN(line, ":", 5)
+		parts := strings.SplitN(line, "\t", 5)
 		if len(parts) < 5 {
 			continue
 		}
@@ -151,7 +152,7 @@ func ParseSessionList(raw string) []Session {
 		if line == "" {
 			continue
 		}
-		parts := strings.SplitN(line, ":", 3)
+		parts := strings.SplitN(line, "\t", 3)
 		if len(parts) < 3 {
 			continue
 		}
@@ -176,7 +177,7 @@ func ParseWindowList(raw string) []Window {
 		if line == "" {
 			continue
 		}
-		parts := strings.SplitN(line, ":", 3)
+		parts := strings.SplitN(line, "\t", 3)
 		if len(parts) < 3 {
 			continue
 		}
