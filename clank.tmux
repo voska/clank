@@ -25,8 +25,10 @@ ensure() {
     return
   fi
 
-  # Move clank pane into current window on the left
-  tmux join-pane -hb -l "$WIDTH" -t "$(tmux display-message -p '#{pane_id}')" -s "$pane" 2>/dev/null
+  # Target the first pane in the current window so clank always lands on the far left
+  local first_pane
+  first_pane=$(tmux list-panes -F '#{pane_id}' 2>/dev/null | head -1)
+  tmux join-pane -hb -l "$WIDTH" -t "$first_pane" -s "$pane" 2>/dev/null
 }
 
 toggle() {
