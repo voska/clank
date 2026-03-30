@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -183,7 +184,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.mux.SwitchWindow(it.session, 0)
 			} else {
 				m.mux.SwitchWindow(it.session, it.winIndex)
-				m.store.ClearUnseen(it.session, it.window)
+				m.store.ClearUnseen(it.session, it.winIndex)
 			}
 		}
 	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
@@ -216,23 +217,42 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		m.mux.SwitchWindow(it.session, 0)
 	} else {
 		m.mux.SwitchWindow(it.session, it.winIndex)
-		m.store.ClearUnseen(it.session, it.window)
+		m.store.ClearUnseen(it.session, it.winIndex)
 	}
 	return m, nil
+}
+
+// resolveWindowIndex finds the window index for a session:window name pair.
+func (m Model) resolveWindowIndex(session, window string) int {
+	for _, sess := range m.store.Sessions() {
+		if sess.Name != session {
+			continue
+		}
+		for _, win := range sess.Windows {
+			if win.Name == window {
+				return win.Index
+			}
+		}
+	}
+	return -1
 }
 
 func (m Model) handleSocketEvent(ev socket.Event) {
 	logger.Log("hook  %s:%s agent=%s state=%s reason=%s model=%s ctx=%.0f", ev.Session, ev.Window, ev.Agent, ev.State, ev.Reason, ev.Model, ev.ContextPct)
 
+	winIdx := m.resolveWindowIndex(ev.Session, ev.Window)
+	if winIdx < 0 {
+		return
+	}
+
 	// Metadata-only event (statusline): update model/context without changing state
 	if ev.State == "" {
-		sessions := m.store.Sessions()
-		for _, sess := range sessions {
+		for _, sess := range m.store.Sessions() {
 			if sess.Name != ev.Session {
 				continue
 			}
 			for _, win := range sess.Windows {
-				if win.Name == ev.Window && win.Agent != nil {
+				if win.Index == winIdx && win.Agent != nil {
 					info := *win.Agent
 					if ev.Model != "" {
 						info.Model = ev.Model
@@ -240,7 +260,7 @@ func (m Model) handleSocketEvent(ev socket.Event) {
 					if ev.ContextPct > 0 {
 						info.ContextPct = ev.ContextPct
 					}
-					m.store.SetAgentState(ev.Session, ev.Window, info)
+					m.store.SetAgentState(ev.Session, winIdx, info)
 					return
 				}
 			}
@@ -256,7 +276,7 @@ func (m Model) handleSocketEvent(ev socket.Event) {
 		ContextPct: ev.ContextPct,
 		FromHook:   true,
 	}
-	m.store.SetAgentState(ev.Session, ev.Window, info)
+	m.store.SetAgentState(ev.Session, winIdx, info)
 }
 
 func (m Model) tickCmd() tea.Cmd {
@@ -324,7 +344,7 @@ func (m Model) pollTmux() tea.Cmd {
 		for _, snap := range snapshots {
 			for _, win := range snap.Windows {
 				if win.Active {
-					m.store.ClearUnseen(snap.Name, win.Name)
+					m.store.ClearUnseen(snap.Name, win.Index)
 				}
 			}
 		}
@@ -351,10 +371,10 @@ func (m Model) scrapeAgents() tea.Cmd {
 			paneIndex int
 		}
 		var agents []agentPane
-		seen := make(map[string]bool) // "session:window" -> has agent
+		seen := make(map[string]bool) // "session:winIndex" -> has agent
 
 		for _, p := range allPanes {
-			key := p.Session + ":" + p.Window
+			key := fmt.Sprintf("%s:%d", p.Session, p.WinIndex)
 			if seen[key] {
 				continue
 			}
@@ -375,10 +395,10 @@ func (m Model) scrapeAgents() tea.Cmd {
 		sessions := m.store.Sessions()
 		for _, sess := range sessions {
 			for _, win := range sess.Windows {
-				key := sess.Name + ":" + win.Name
+				key := fmt.Sprintf("%s:%d", sess.Name, win.Index)
 				if !seen[key] && win.Agent != nil && win.Agent.State != detect.StateDone {
 					logger.Log("scrape %s agent gone, clearing", key)
-					m.store.ClearAgent(sess.Name, win.Name)
+					m.store.ClearAgent(sess.Name, win.Index)
 				}
 			}
 		}
@@ -392,7 +412,7 @@ func (m Model) scrapeAgents() tea.Cmd {
 					continue
 				}
 				for _, win := range sess.Windows {
-					if win.Name != ap.window {
+					if win.Index != ap.winIndex {
 						continue
 					}
 					if win.Agent != nil && win.Agent.FromHook && time.Since(win.Agent.LastChanged) < 10*time.Second {
@@ -416,7 +436,7 @@ func (m Model) scrapeAgents() tea.Cmd {
 						continue
 					}
 					for _, win := range sess.Windows {
-						if win.Name == ap.window && win.Agent != nil {
+						if win.Index == ap.winIndex && win.Agent != nil {
 							existingState = win.Agent.State
 						}
 					}
@@ -443,14 +463,14 @@ func (m Model) scrapeAgents() tea.Cmd {
 						continue
 					}
 					for _, win := range sess.Windows {
-						if win.Name == ap.window && win.Agent != nil {
+						if win.Index == ap.winIndex && win.Agent != nil {
 							model = win.Agent.Model
 							ctxPct = win.Agent.ContextPct
 						}
 					}
 				}
 
-				m.store.SetAgentState(ap.session, ap.window, state.AgentInfo{
+				m.store.SetAgentState(ap.session, ap.winIndex, state.AgentInfo{
 					Name:       ap.name,
 					State:      agentState,
 					WaitReason: reason,
