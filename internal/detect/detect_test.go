@@ -89,6 +89,11 @@ func TestDetectState(t *testing.T) {
 			reason:  "decision",
 		},
 		{
+			name:    "done not waiting: stale permission text high up in output",
+			content: "? Allow Read tool on file.go?\n  Yes, allow once\n\nDid the thing.\n\n✻ Cogitated for 33s\n\n───\n❯ \n───\n  proj | Opus 4.6\n  ⏵⏵ bypass\n",
+			want:    StateDone,
+		},
+		{
 			name:    "exited: shell prompt",
 			content: "some output\n$ ",
 			want:    StateExited,
