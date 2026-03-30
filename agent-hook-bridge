@@ -12,11 +12,7 @@ SOCK="/tmp/clank-$(id -u).sock"
 
 sock_send() {
   if [ -S "$SOCK" ]; then
-    # Use bash built-in redirection to avoid nc hanging
-    exec 3<>"$SOCK" 2>/dev/null && {
-      printf '%s\n' "$1" >&3
-      exec 3>&-
-    } || true
+    printf '%s\n' "$1" | nc -U "$SOCK" 2>/dev/null &
   fi
 }
 
