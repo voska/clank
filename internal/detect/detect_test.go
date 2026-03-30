@@ -58,7 +58,7 @@ func TestDetectState(t *testing.T) {
 		},
 		{
 			name:    "running beats stale permission prompt",
-			content: "old output\n? Allow Read tool on file.go?\n  Yes, allow once\nmore output\n✢ Thinking\u2026 (5s)\n",
+			content: "? Allow Read tool on file.go?\n  Yes, allow once\nmore output\nmore\nmore\nmore\nmore\nmore\nmore\nmore\n✢ Thinking\u2026 (5s)\n───\n❯ fix\n───\nstatus bar\n",
 			want:    StateRunning,
 		},
 		{

@@ -133,7 +133,19 @@ func (l *Live) SwitchWindow(session string, windowIndex int) error {
 		return fmt.Errorf("select-window %s: %w", target, err)
 	}
 	_, err = run("switch-client", "-t", session)
-	return err
+	if err != nil {
+		return err
+	}
+	// Focus the main pane (not clank) — find the last non-clank pane
+	out, _ := run("list-panes", "-t", target, "-F", "#{pane_id}\t#{pane_current_command}")
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		parts := strings.SplitN(line, "\t", 2)
+		if len(parts) == 2 && parts[1] != "clank" && parts[1] != "cat" {
+			run("select-pane", "-t", parts[0])
+			break
+		}
+	}
+	return nil
 }
 
 func run(args ...string) (string, error) {

@@ -41,10 +41,42 @@ func DetectState(content string) (State, string) {
 	}
 
 	tail := content
+	bottom := lastNLines(tail, 8)
 
-	// Running checks FIRST — active work is the strongest signal.
-	// Old "? Allow" text can linger in visible output from previous turns,
-	// but running indicators only appear during active work.
+	// Check bottom of screen for definitive idle indicators FIRST.
+	// These appear at fixed positions and override stale spinners in scrollback.
+
+	// Droid idle: "? for help" in status bar, mission prompt, or selection menu
+	if strings.Contains(bottom, "? for help") ||
+		strings.Contains(bottom, "↑/↓ Navigate") ||
+		strings.Contains(bottom, "Enter Select") {
+		return StateDone, ""
+	}
+
+	// Droid idle: empty mission prompt box (│ > │ or │ >  │)
+	if strings.Contains(bottom, "│ >") && strings.Contains(bottom, "│") {
+		trimmed := ""
+		for _, line := range strings.Split(bottom, "\n") {
+			if strings.Contains(line, "│ >") {
+				trimmed = strings.TrimSpace(line)
+				break
+			}
+		}
+		// Only match if the prompt content is empty or very short (user hasn't typed a long command)
+		if strings.Contains(trimmed, "│ >") && !strings.Contains(trimmed, "Invoking") {
+			return StateDone, ""
+		}
+	}
+
+	// Claude waiting: permission prompt (bottom of screen only)
+	if strings.Contains(bottom, "? Allow") || strings.Contains(bottom, "Yes, allow") {
+		return StateWaiting, "permission"
+	}
+	if strings.Contains(bottom, "No, and tell Claude what to do differently") {
+		return StateWaiting, "decision"
+	}
+
+	// Running checks — active work indicators anywhere in visible content.
 
 	// Running: Unicode ellipsis followed by timing — "Thinking… (1m 32s)"
 	if strings.Contains(tail, "\u2026 (") {
@@ -61,25 +93,14 @@ func DetectState(content string) (State, string) {
 		return StateRunning, ""
 	}
 
-	// Running: braille spinner characters
+	// Running: braille spinner characters (but only if no idle indicator at bottom)
 	for _, ch := range []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"} {
 		if strings.Contains(tail, ch) {
 			return StateRunning, ""
 		}
 	}
 
-	// Waiting: permission prompt (only if NOT running).
-	// Only check the last 8 lines to avoid matching stale "? Allow" text
-	// from conversation history higher up in the visible output.
-	bottom := lastNLines(tail, 8)
-	if strings.Contains(bottom, "? Allow") || strings.Contains(bottom, "Yes, allow") {
-		return StateWaiting, "permission"
-	}
-	if strings.Contains(bottom, "No, and tell Claude what to do differently") {
-		return StateWaiting, "decision"
-	}
-
-	// Done: ❯ prompt visible with no running indicators after it
+	// Done: ❯ prompt visible (Claude idle)
 	if strings.Contains(tail, "❯") {
 		return StateDone, ""
 	}
