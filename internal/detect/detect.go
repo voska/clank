@@ -68,11 +68,14 @@ func DetectState(content string) (State, string) {
 		}
 	}
 
-	// Waiting: permission prompt (only if NOT running)
-	if strings.Contains(tail, "? Allow") || strings.Contains(tail, "Yes, allow") {
+	// Waiting: permission prompt (only if NOT running).
+	// Only check the last 8 lines to avoid matching stale "? Allow" text
+	// from conversation history higher up in the visible output.
+	bottom := lastNLines(tail, 8)
+	if strings.Contains(bottom, "? Allow") || strings.Contains(bottom, "Yes, allow") {
 		return StateWaiting, "permission"
 	}
-	if strings.Contains(tail, "No, and tell Claude what to do differently") {
+	if strings.Contains(bottom, "No, and tell Claude what to do differently") {
 		return StateWaiting, "decision"
 	}
 
@@ -100,6 +103,15 @@ func DetectState(content string) (State, string) {
 	}
 
 	return StateUnknown, ""
+}
+
+func lastNLines(s string, n int) string {
+	lines := strings.Split(s, "\n")
+	start := len(lines) - n
+	if start < 0 {
+		start = 0
+	}
+	return strings.Join(lines[start:], "\n")
 }
 
 func lastNonEmptyLine(s string) string {

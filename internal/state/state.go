@@ -1,6 +1,8 @@
 package state
 
 import (
+	"encoding/json"
+	"os"
 	"sync"
 	"time"
 
@@ -48,6 +50,7 @@ type Store struct {
 	mu        sync.RWMutex
 	sessions  []SessionState
 	collapsed map[string]bool
+	persisted map[string]persistedAgent // restored from disk on startup
 }
 
 func New() *Store {
@@ -85,12 +88,16 @@ func (s *Store) UpdateTree(snapshots []SessionSnapshot) {
 		}
 		for _, wSnap := range snap.Windows {
 			key := snap.Name + ":" + wSnap.Name
+			agent := existing[key]
+			if agent == nil {
+				agent = s.restoreAgent(key)
+			}
 			win := WindowState{
 				Name:      wSnap.Name,
 				Index:     wSnap.Index,
 				Active:    wSnap.Active,
 				HasUnseen: unseen[key],
-				Agent:     existing[key],
+				Agent:     agent,
 			}
 			sess.Windows = append(sess.Windows, win)
 		}
@@ -226,4 +233,80 @@ func (s *Store) HighestPriority(session string) detect.State {
 		}
 	}
 	return highest
+}
+
+// persistedState is the JSON-serializable format for state persistence.
+type persistedState struct {
+	Agents map[string]persistedAgent `json:"agents"` // key: "session:window"
+}
+
+type persistedAgent struct {
+	Name        string       `json:"name"`
+	State       detect.State `json:"state"`
+	LastChanged time.Time    `json:"last_changed"`
+	FromHook    bool         `json:"from_hook"`
+}
+
+// Save persists agent state to a file so timers survive restarts.
+func (s *Store) Save(path string) error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	ps := persistedState{Agents: make(map[string]persistedAgent)}
+	for _, sess := range s.sessions {
+		for _, win := range sess.Windows {
+			if win.Agent == nil {
+				continue
+			}
+			key := sess.Name + ":" + win.Name
+			ps.Agents[key] = persistedAgent{
+				Name:        win.Agent.Name,
+				State:       win.Agent.State,
+				LastChanged: win.Agent.LastChanged,
+				FromHook:    win.Agent.FromHook,
+			}
+		}
+	}
+
+	data, err := json.Marshal(ps)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0644)
+}
+
+// Load restores agent state from a file. Call before the first UpdateTree.
+func (s *Store) Load(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+
+	var ps persistedState
+	if err := json.Unmarshal(data, &ps); err != nil {
+		return err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.persisted = ps.Agents
+	return nil
+}
+
+// restoreAgent checks persisted state when a new agent is first detected.
+func (s *Store) restoreAgent(key string) *AgentInfo {
+	if s.persisted == nil {
+		return nil
+	}
+	pa, ok := s.persisted[key]
+	if !ok {
+		return nil
+	}
+	return &AgentInfo{
+		Name:        pa.Name,
+		State:       pa.State,
+		LastChanged: pa.LastChanged,
+		FromHook:    false, // don't trust old hook data after restart
+	}
 }
