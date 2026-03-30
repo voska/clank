@@ -30,7 +30,15 @@ ensure() {
   log "ensure: clank_pane=$clank_pane"
 
   if [ -z "$clank_pane" ]; then
-    log "ensure: no clank pane found, skipping"
+    log "ensure: clank died, restarting"
+    local placeholder
+    placeholder=$(find_placeholder)
+    if [ -n "$placeholder" ]; then
+      tmux respawn-pane -k -t "$placeholder" "$CLANK_BIN --width $WIDTH" 2>>"$LOG"
+    else
+      tmux split-window -hb -l "$WIDTH" "$CLANK_BIN --width $WIDTH" 2>>"$LOG"
+      tmux select-pane -R 2>/dev/null
+    fi
     return
   fi
 
