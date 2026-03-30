@@ -1,6 +1,7 @@
 package state
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/voska/clank/internal/detect"
@@ -97,6 +98,56 @@ func TestFullScrapeUnseenCycle(t *testing.T) {
 
 // TestUnseenClearsOnActiveWindow verifies that when pollTmux reports
 // a window as active, unseen gets cleared automatically.
+func TestStatePersistence(t *testing.T) {
+	s := New()
+	s.UpdateTree([]SessionSnapshot{
+		{Name: "proj-b", Index: 1, Windows: []WindowSnapshot{
+			{Name: "dev", Index: 1, Active: false},
+		}},
+	})
+
+	// Set agent state with a specific time
+	s.SetAgentState("proj-b", "dev", AgentInfo{
+		Name:  "claude",
+		State: detect.StateRunning,
+	})
+
+	// Save to temp file
+	path := filepath.Join(t.TempDir(), "state.json")
+	if err := s.Save(path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	// Create a new store, load from file
+	s2 := New()
+	if err := s2.Load(path); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	// Populate tree — should restore agent from persisted state
+	s2.UpdateTree([]SessionSnapshot{
+		{Name: "proj-b", Index: 1, Windows: []WindowSnapshot{
+			{Name: "dev", Index: 1, Active: false},
+		}},
+	})
+
+	sessions := s2.Sessions()
+	agent := sessions[0].Windows[0].Agent
+	if agent == nil {
+		t.Fatal("expected restored agent, got nil")
+	}
+	if agent.State != detect.StateRunning {
+		t.Errorf("expected running, got %s", agent.State)
+	}
+	if agent.Name != "claude" {
+		t.Errorf("expected claude, got %s", agent.Name)
+	}
+	// Timer should be preserved (not reset to now)
+	if agent.LastChanged.IsZero() {
+		t.Error("expected non-zero LastChanged after restore")
+	}
+}
+
 func TestUnseenClearsOnActiveWindow(t *testing.T) {
 	s := New()
 
