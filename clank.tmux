@@ -88,6 +88,7 @@ toggle() {
     tmux set-hook -gu after-select-window[$HOOK_IDX] 2>/dev/null
     tmux set-hook -gu client-session-changed[$HOOK_IDX] 2>/dev/null
     tmux set-hook -gu after-new-window[$HOOK_IDX] 2>/dev/null
+    tmux set-hook -gu client-resized[$HOOK_IDX] 2>/dev/null
   else
     log "toggle ON"
     # Pre-split ALL existing windows with placeholders first
@@ -118,6 +119,7 @@ toggle() {
     tmux set-hook -g after-select-window[$HOOK_IDX] "run-shell '$CURRENT_DIR/clank.tmux ensure'"
     tmux set-hook -g client-session-changed[$HOOK_IDX] "run-shell '$CURRENT_DIR/clank.tmux ensure'"
     tmux set-hook -g after-new-window[$HOOK_IDX] "run-shell '$CURRENT_DIR/clank.tmux presplit'"
+    tmux set-hook -g client-resized[$HOOK_IDX] "run-shell '$CURRENT_DIR/clank.tmux ensure'"
   fi
 }
 
