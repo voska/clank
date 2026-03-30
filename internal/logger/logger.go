@@ -28,12 +28,22 @@ func Close() {
 	}
 }
 
+const maxLogSize = 100 * 1024 // 100KB
+
 func Log(format string, args ...any) {
 	mu.Lock()
 	defer mu.Unlock()
 	if file == nil {
 		return
 	}
+
+	// Rotate if too large
+	if info, err := file.Stat(); err == nil && info.Size() > maxLogSize {
+		file.Truncate(0)
+		file.Seek(0, 0)
+		fmt.Fprintf(file, "%s  log rotated (exceeded %dKB)\n", time.Now().Format("15:04:05.000"), maxLogSize/1024)
+	}
+
 	ts := time.Now().Format("15:04:05.000")
 	fmt.Fprintf(file, "%s  %s\n", ts, fmt.Sprintf(format, args...))
 }

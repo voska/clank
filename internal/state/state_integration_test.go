@@ -28,9 +28,9 @@ func TestFullScrapeUnseenCycle(t *testing.T) {
 	})
 
 	// Scrape cycle 1: detect agents
-	s.SetAgentState("homelab", "hass", AgentInfo{Name: "claude", State: detect.StateDone})
-	s.SetAgentState("homelab", "opensessions", AgentInfo{Name: "claude", State: detect.StateRunning})
-	s.SetAgentState("onspot", "cf", AgentInfo{Name: "droid", State: detect.StateDone})
+	s.SetAgentState("homelab", 1, AgentInfo{Name: "claude", State: detect.StateDone})
+	s.SetAgentState("homelab", 2, AgentInfo{Name: "claude", State: detect.StateRunning})
+	s.SetAgentState("onspot", 1, AgentInfo{Name: "droid", State: detect.StateDone})
 
 	// Verify initial unseen state
 	sessions := s.Sessions()
@@ -45,14 +45,14 @@ func TestFullScrapeUnseenCycle(t *testing.T) {
 	}
 
 	// User clicks hass in sidebar -> clear unseen
-	s.ClearUnseen("homelab", "hass")
+	s.ClearUnseen("homelab", 1)
 	sessions = s.Sessions()
 	if sessions[0].Windows[0].HasUnseen {
 		t.Fatal("hass: unseen should be cleared after click")
 	}
 
 	// Scrape cycle 2: same state (done -> done)
-	s.SetAgentState("homelab", "hass", AgentInfo{Name: "claude", State: detect.StateDone})
+	s.SetAgentState("homelab", 1, AgentInfo{Name: "claude", State: detect.StateDone})
 
 	sessions = s.Sessions()
 	if sessions[0].Windows[0].HasUnseen {
@@ -61,7 +61,7 @@ func TestFullScrapeUnseenCycle(t *testing.T) {
 
 	// Scrape cycle 3, 4, 5: keep scraping same state
 	for i := 0; i < 3; i++ {
-		s.SetAgentState("homelab", "hass", AgentInfo{Name: "claude", State: detect.StateDone})
+		s.SetAgentState("homelab", 1, AgentInfo{Name: "claude", State: detect.StateDone})
 	}
 	sessions = s.Sessions()
 	if sessions[0].Windows[0].HasUnseen {
@@ -69,26 +69,26 @@ func TestFullScrapeUnseenCycle(t *testing.T) {
 	}
 
 	// Now agent ACTUALLY changes state (user sends prompt -> running -> done)
-	s.SetAgentState("homelab", "hass", AgentInfo{Name: "claude", State: detect.StateRunning})
+	s.SetAgentState("homelab", 1, AgentInfo{Name: "claude", State: detect.StateRunning})
 	sessions = s.Sessions()
 	if !sessions[0].Windows[0].HasUnseen {
 		t.Fatal("hass: expected unseen after running transition")
 	}
 
-	s.ClearUnseen("homelab", "hass")
+	s.ClearUnseen("homelab", 1)
 
-	s.SetAgentState("homelab", "hass", AgentInfo{Name: "claude", State: detect.StateDone})
+	s.SetAgentState("homelab", 1, AgentInfo{Name: "claude", State: detect.StateDone})
 	sessions = s.Sessions()
 	if !sessions[0].Windows[0].HasUnseen {
 		t.Fatal("hass: expected unseen after real running->done transition")
 	}
 
 	// User clicks again -> clear
-	s.ClearUnseen("homelab", "hass")
+	s.ClearUnseen("homelab", 1)
 
 	// Multiple scrapes -> stays cleared
 	for i := 0; i < 5; i++ {
-		s.SetAgentState("homelab", "hass", AgentInfo{Name: "claude", State: detect.StateDone})
+		s.SetAgentState("homelab", 1, AgentInfo{Name: "claude", State: detect.StateDone})
 	}
 	sessions = s.Sessions()
 	if sessions[0].Windows[0].HasUnseen {
@@ -107,7 +107,7 @@ func TestStatePersistence(t *testing.T) {
 	})
 
 	// Set agent state with a specific time
-	s.SetAgentState("homelab", "dev", AgentInfo{
+	s.SetAgentState("homelab", 1, AgentInfo{
 		Name:  "claude",
 		State: detect.StateRunning,
 	})
@@ -158,7 +158,7 @@ func TestUnseenClearsOnActiveWindow(t *testing.T) {
 	})
 
 	// Agent finishes
-	s.SetAgentState("homelab", "hass", AgentInfo{Name: "claude", State: detect.StateDone})
+	s.SetAgentState("homelab", 1, AgentInfo{Name: "claude", State: detect.StateDone})
 	sessions := s.Sessions()
 	if !sessions[0].Windows[0].HasUnseen {
 		t.Fatal("expected unseen")
@@ -171,7 +171,7 @@ func TestUnseenClearsOnActiveWindow(t *testing.T) {
 		}},
 	})
 	// Simulate what pollTmux does: clear unseen on active windows
-	s.ClearUnseen("homelab", "hass")
+	s.ClearUnseen("homelab", 1)
 
 	sessions = s.Sessions()
 	if sessions[0].Windows[0].HasUnseen {
@@ -179,7 +179,7 @@ func TestUnseenClearsOnActiveWindow(t *testing.T) {
 	}
 
 	// Scrape runs again
-	s.SetAgentState("homelab", "hass", AgentInfo{Name: "claude", State: detect.StateDone})
+	s.SetAgentState("homelab", 1, AgentInfo{Name: "claude", State: detect.StateDone})
 	sessions = s.Sessions()
 	if sessions[0].Windows[0].HasUnseen {
 		t.Fatal("unseen should NOT reappear after clear + repeated done")

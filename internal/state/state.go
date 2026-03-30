@@ -68,7 +68,7 @@ func (s *Store) UpdateTree(snapshots []SessionSnapshot) {
 
 	for _, sess := range s.sessions {
 		for _, win := range sess.Windows {
-			key := sess.Name + ":" + win.Name
+			key := winKey(sess.Name, win.Index)
 			if win.Agent != nil {
 				agentCopy := *win.Agent
 				existing[key] = &agentCopy
@@ -87,7 +87,7 @@ func (s *Store) UpdateTree(snapshots []SessionSnapshot) {
 			Collapsed: s.collapsed[snap.Name],
 		}
 		for _, wSnap := range snap.Windows {
-			key := snap.Name + ":" + wSnap.Name
+			key := winKey(snap.Name, wSnap.Index)
 			agent := existing[key]
 			if agent == nil {
 				agent = s.restoreAgent(key)
@@ -123,7 +123,7 @@ func (s *Store) Sessions() []SessionState {
 	return result
 }
 
-func (s *Store) SetAgentState(session, window string, info AgentInfo) {
+func (s *Store) SetAgentState(session string, windowIndex int, info AgentInfo) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -132,14 +132,13 @@ func (s *Store) SetAgentState(session, window string, info AgentInfo) {
 			continue
 		}
 		for j, win := range sess.Windows {
-			if win.Name != window {
+			if win.Index != windowIndex {
 				continue
 			}
 			existing := s.sessions[i].Windows[j].Agent
 			stateChanged := existing == nil || existing.State != info.State
 			if stateChanged {
 				info.LastChanged = time.Now()
-				// Only mark unseen on actual state transitions, not repeated scrapes
 				if !win.Active {
 					s.sessions[i].Windows[j].HasUnseen = true
 				}
@@ -152,7 +151,7 @@ func (s *Store) SetAgentState(session, window string, info AgentInfo) {
 	}
 }
 
-func (s *Store) ClearAgent(session, window string) {
+func (s *Store) ClearAgent(session string, windowIndex int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -161,7 +160,7 @@ func (s *Store) ClearAgent(session, window string) {
 			continue
 		}
 		for j, win := range sess.Windows {
-			if win.Name != window {
+			if win.Index != windowIndex {
 				continue
 			}
 			s.sessions[i].Windows[j].Agent = nil
@@ -170,7 +169,7 @@ func (s *Store) ClearAgent(session, window string) {
 	}
 }
 
-func (s *Store) ClearUnseen(session, window string) {
+func (s *Store) ClearUnseen(session string, windowIndex int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -179,7 +178,7 @@ func (s *Store) ClearUnseen(session, window string) {
 			continue
 		}
 		for j, win := range sess.Windows {
-			if win.Name != window {
+			if win.Index != windowIndex {
 				continue
 			}
 			s.sessions[i].Windows[j].HasUnseen = false
@@ -258,7 +257,7 @@ func (s *Store) Save(path string) error {
 			if win.Agent == nil {
 				continue
 			}
-			key := sess.Name + ":" + win.Name
+			key := winKey(sess.Name, win.Index)
 			ps.Agents[key] = persistedAgent{
 				Name:        win.Agent.Name,
 				State:       win.Agent.State,

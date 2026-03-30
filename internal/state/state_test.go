@@ -30,7 +30,7 @@ func TestSetAgentState(t *testing.T) {
 			{Name: "dev", Index: 1, Active: true},
 		}},
 	})
-	s.SetAgentState("sensai", "dev", AgentInfo{
+	s.SetAgentState("sensai", 1, AgentInfo{
 		Name:  "claude",
 		State: detect.StateRunning,
 	})
@@ -51,7 +51,7 @@ func TestUnseenMarker(t *testing.T) {
 			{Name: "dev", Index: 1, Active: false},
 		}},
 	})
-	s.SetAgentState("sensai", "dev", AgentInfo{
+	s.SetAgentState("sensai", 1, AgentInfo{
 		Name:  "claude",
 		State: detect.StateDone,
 	})
@@ -59,7 +59,7 @@ func TestUnseenMarker(t *testing.T) {
 	if !sessions[0].Windows[0].HasUnseen {
 		t.Error("expected unseen marker on non-active window")
 	}
-	s.ClearUnseen("sensai", "dev")
+	s.ClearUnseen("sensai", 1)
 	sessions = s.Sessions()
 	if sessions[0].Windows[0].HasUnseen {
 		t.Error("expected unseen marker to be cleared")
@@ -94,29 +94,29 @@ func TestUnseenStaysCleared(t *testing.T) {
 	})
 
 	// Agent finishes -> unseen = true
-	s.SetAgentState("sensai", "dev", AgentInfo{Name: "claude", State: detect.StateDone})
+	s.SetAgentState("sensai", 1, AgentInfo{Name: "claude", State: detect.StateDone})
 	sessions := s.Sessions()
 	if !sessions[0].Windows[0].HasUnseen {
 		t.Fatal("expected unseen after state transition to done")
 	}
 
 	// User clicks -> clear unseen
-	s.ClearUnseen("sensai", "dev")
+	s.ClearUnseen("sensai", 1)
 	sessions = s.Sessions()
 	if sessions[0].Windows[0].HasUnseen {
 		t.Fatal("expected unseen cleared after click")
 	}
 
 	// Scrape runs again with same state (done -> done) -> unseen should NOT reappear
-	s.SetAgentState("sensai", "dev", AgentInfo{Name: "claude", State: detect.StateDone})
+	s.SetAgentState("sensai", 1, AgentInfo{Name: "claude", State: detect.StateDone})
 	sessions = s.Sessions()
 	if sessions[0].Windows[0].HasUnseen {
 		t.Fatal("unseen should NOT reappear on repeated done state")
 	}
 
 	// Actual state change (done -> running) -> unseen should appear
-	s.SetAgentState("sensai", "dev", AgentInfo{Name: "claude", State: detect.StateRunning})
-	s.SetAgentState("sensai", "dev", AgentInfo{Name: "claude", State: detect.StateDone})
+	s.SetAgentState("sensai", 1, AgentInfo{Name: "claude", State: detect.StateRunning})
+	s.SetAgentState("sensai", 1, AgentInfo{Name: "claude", State: detect.StateDone})
 	sessions = s.Sessions()
 	if !sessions[0].Windows[0].HasUnseen {
 		t.Fatal("expected unseen after real state transition running->done")
@@ -131,8 +131,8 @@ func TestHighestPriorityState(t *testing.T) {
 			{Name: "droid", Index: 2, Active: false},
 		}},
 	})
-	s.SetAgentState("sensai", "dev", AgentInfo{Name: "claude", State: detect.StateDone})
-	s.SetAgentState("sensai", "droid", AgentInfo{Name: "droid", State: detect.StateWaiting})
+	s.SetAgentState("sensai", 1, AgentInfo{Name: "claude", State: detect.StateDone})
+	s.SetAgentState("sensai", 2, AgentInfo{Name: "droid", State: detect.StateWaiting})
 	hp := s.HighestPriority("sensai")
 	if hp != detect.StateWaiting {
 		t.Errorf("expected waiting (highest priority), got %s", hp)
