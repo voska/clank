@@ -8,11 +8,15 @@ INPUT=$(cat)
 SESS=$(tmux display-message -p '#S' 2>/dev/null || echo "unknown")
 WIN=$(tmux display-message -p '#W' 2>/dev/null || echo "unknown")
 PTY=$(tmux display-message -p '#{pane_tty}' 2>/dev/null || echo "")
-SOCK="/tmp/clank.sock"
+SOCK="/tmp/clank-$(id -u).sock"
 
 sock_send() {
   if [ -S "$SOCK" ]; then
-    printf '%s\n' "$1" | nc -U "$SOCK" 2>/dev/null || true
+    # Use bash built-in redirection to avoid nc hanging
+    exec 3<>"$SOCK" 2>/dev/null && {
+      printf '%s\n' "$1" >&3
+      exec 3>&-
+    } || true
   fi
 }
 

@@ -22,7 +22,8 @@ func main() {
 	width := flag.Int("width", 30, "Sidebar width in columns")
 	pollInterval := flag.Duration("poll", 1*time.Second, "tmux poll interval")
 	scrapeInterval := flag.Duration("scrape", 2*time.Second, "Content scrape interval")
-	socketPath := flag.String("socket", "/tmp/clank.sock", "Unix socket path")
+	defaultSocket := fmt.Sprintf("/tmp/clank-%d.sock", os.Getuid())
+	socketPath := flag.String("socket", defaultSocket, "Unix socket path")
 	flag.Parse()
 
 	if *versionFlag {

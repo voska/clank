@@ -455,9 +455,11 @@ func (m Model) scrapeAgents() tea.Cmd {
 
 				logger.Log("scrape %s:%s agent=%s state=%s", ap.session, ap.window, ap.name, agentState)
 
-				// Preserve hook metadata if it exists
+				// Re-check hook freshness before writing — a hook may have fired
+				// during capture-pane (race condition)
 				var model string
 				var ctxPct float64
+				skipWrite := false
 				for _, sess := range m.store.Sessions() {
 					if sess.Name != ap.session {
 						continue
@@ -466,8 +468,15 @@ func (m Model) scrapeAgents() tea.Cmd {
 						if win.Index == ap.winIndex && win.Agent != nil {
 							model = win.Agent.Model
 							ctxPct = win.Agent.ContextPct
+							if win.Agent.FromHook && time.Since(win.Agent.LastChanged) < 10*time.Second {
+								skipWrite = true
+							}
 						}
 					}
+				}
+				if skipWrite {
+					logger.Log("scrape %s:%s skipping write — hook arrived during scrape", ap.session, ap.window)
+					goto nextAgent
 				}
 
 				m.store.SetAgentState(ap.session, ap.winIndex, state.AgentInfo{
