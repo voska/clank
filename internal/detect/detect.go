@@ -43,10 +43,17 @@ func DetectState(content string) (State, string) {
 	tail := content
 	bottom := lastNLines(tail, 8)
 
-	// Check bottom of screen for definitive idle indicators FIRST.
-	// These appear at fixed positions and override stale spinners in scrollback.
+	// Droid active execution — always takes priority.
+	// The mission prompt (│ >) is visible even during execution, so we must
+	// check for explicit running indicators before idle patterns.
+	if strings.Contains(tail, "Executing...") && strings.Contains(tail, "Press ESC to stop") {
+		return StateRunning, ""
+	}
+	if strings.Contains(tail, "sub-agents running") {
+		return StateRunning, ""
+	}
 
-	// Droid idle: "? for help" in status bar, mission prompt, or selection menu
+	// Droid idle: only when NOT executing
 	if strings.Contains(bottom, "? for help") ||
 		strings.Contains(bottom, "↑/↓ Navigate") ||
 		strings.Contains(bottom, "Enter Select") {
