@@ -40,7 +40,7 @@ ensure() {
     cur_width=$(tmux display-message -t "$clank_pane" -p '#{pane_width}' 2>/dev/null)
     if [ "$cur_width" != "$WIDTH" ]; then
       log "ensure: resizing clank $cur_width -> $WIDTH"
-      tmux resize-pane -t "$clank_pane" -x "$WIDTH" 2>/dev/null
+      tmux resize-pane -t "$clank_pane" -x "$WIDTH" -y 100% 2>/dev/null
     fi
     return
   fi
@@ -61,8 +61,8 @@ ensure() {
     tmux join-pane -hb -l "$WIDTH" -t "$target_pane" -s "$clank_pane" 2>>"$LOG"
   fi
 
-  # Ensure correct width regardless of client terminal size
-  tmux resize-pane -t "$clank_pane" -x "$WIDTH" 2>/dev/null
+  # Ensure correct size regardless of client terminal or pane layout
+  tmux resize-pane -t "$clank_pane" -x "$WIDTH" -y 100% 2>/dev/null
 }
 
 presplit() {
