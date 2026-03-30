@@ -11,6 +11,7 @@ import (
 	"github.com/voska/clank/internal/socket"
 	"github.com/voska/clank/internal/state"
 	"github.com/voska/clank/internal/tmux"
+	"github.com/voska/clank/internal/transcript"
 )
 
 type Config struct {
@@ -20,16 +21,17 @@ type Config struct {
 }
 
 type Model struct {
-	config       Config
-	store        *state.Store
-	mux          tmux.Mux
-	events       <-chan socket.Event
-	cursor       int
-	spinnerFrame int
-	width        int
-	height       int
-	items        []item
-	screenRows   []int
+	config             Config
+	store              *state.Store
+	mux                tmux.Mux
+	events             <-chan socket.Event
+	transcriptWatcher  *transcript.Watcher
+	cursor             int
+	spinnerFrame       int
+	width              int
+	height             int
+	items              []item
+	screenRows         []int
 }
 
 type item struct {
@@ -44,25 +46,31 @@ type tickMsg struct{}
 type scrapeMsg struct{}
 type spinnerMsg struct{}
 type socketEventMsg socket.Event
+type transcriptUpdateMsg transcript.StateUpdate
 
-func NewModel(store *state.Store, mux tmux.Mux, events <-chan socket.Event, config Config) Model {
+func NewModel(store *state.Store, mux tmux.Mux, events <-chan socket.Event, config Config, tw *transcript.Watcher) Model {
 	return Model{
-		config: config,
-		store:  store,
-		mux:    mux,
-		events: events,
-		width:  config.Width,
+		config:            config,
+		store:             store,
+		mux:               mux,
+		events:            events,
+		transcriptWatcher: tw,
+		width:             config.Width,
 	}
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(
+	cmds := []tea.Cmd{
 		m.pollTmux(),
 		m.tickCmd(),
 		m.scrapeCmd(),
 		m.spinnerCmd(),
 		m.listenSocket(),
-	)
+	}
+	if m.transcriptWatcher != nil {
+		cmds = append(cmds, m.listenTranscripts())
+	}
+	return tea.Batch(cmds...)
 }
 
 // rebuildItems flattens the session/window tree into a navigable list
@@ -133,6 +141,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.handleSocketEvent(socket.Event(msg))
 		m.rebuildItems()
 		return m, m.listenSocket()
+	case transcriptUpdateMsg:
+		m.handleTranscriptUpdate(transcript.StateUpdate(msg))
+		m.rebuildItems()
+		return m, m.listenTranscripts()
 	}
 	return m, nil
 }
@@ -279,6 +291,44 @@ func (m Model) handleSocketEvent(ev socket.Event) {
 	m.store.SetAgentState(ev.Session, winIdx, info)
 }
 
+func (m Model) handleTranscriptUpdate(update transcript.StateUpdate) {
+	logger.Log("transcript %s:%d agent=%s state=%s", update.Session, update.WinIndex, update.AgentName, update.State)
+	// Preserve existing model/context metadata
+	var model string
+	var ctxPct float64
+	for _, sess := range m.store.Sessions() {
+		if sess.Name != update.Session {
+			continue
+		}
+		for _, win := range sess.Windows {
+			if win.Index == update.WinIndex && win.Agent != nil {
+				model = win.Agent.Model
+				ctxPct = win.Agent.ContextPct
+			}
+		}
+	}
+	m.store.SetAgentState(update.Session, update.WinIndex, state.AgentInfo{
+		Name:           update.AgentName,
+		State:          update.State,
+		Model:          model,
+		ContextPct:     ctxPct,
+		FromTranscript: true,
+	})
+}
+
+func (m Model) listenTranscripts() tea.Cmd {
+	if m.transcriptWatcher == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		update, ok := <-m.transcriptWatcher.Updates
+		if !ok {
+			return nil
+		}
+		return transcriptUpdateMsg(update)
+	}
+}
+
 func (m Model) tickCmd() tea.Cmd {
 	return tea.Tick(m.config.PollInterval, func(time.Time) tea.Msg {
 		return tickMsg{}
@@ -369,9 +419,11 @@ func (m Model) scrapeAgents() tea.Cmd {
 			window    string
 			winIndex  int
 			paneIndex int
+			panePID   int
 		}
 		var agents []agentPane
-		seen := make(map[string]bool) // "session:winIndex" -> has agent
+		var claudePanePIDs []int
+		seen := make(map[string]bool)
 
 		for _, p := range allPanes {
 			key := fmt.Sprintf("%s:%d", p.Session, p.WinIndex)
@@ -387,7 +439,25 @@ func (m Model) scrapeAgents() tea.Cmd {
 					window:    p.Window,
 					winIndex:  p.WinIndex,
 					paneIndex: p.PaneIndex,
+					panePID:   p.PanePID,
 				})
+				if agentName == "claude" {
+					claudePanePIDs = append(claudePanePIDs, p.PanePID)
+				}
+			}
+		}
+
+		// Map claude pane PIDs to transcript files and start watching
+		var transcriptMap map[int]string
+		if m.transcriptWatcher != nil && len(claudePanePIDs) > 0 {
+			transcriptMap = transcript.MapPanesToTranscripts(claudePanePIDs)
+			for _, ap := range agents {
+				if ap.name != "claude" {
+					continue
+				}
+				if tpath, ok := transcriptMap[ap.panePID]; ok {
+					m.transcriptWatcher.Track(ap.session, ap.winIndex, ap.name, tpath)
+				}
 			}
 		}
 
@@ -419,8 +489,8 @@ func (m Model) scrapeAgents() tea.Cmd {
 					if win.Index != ap.winIndex {
 						continue
 					}
-					if win.Agent != nil && win.Agent.FromHook && time.Since(win.Agent.LastChanged) < 10*time.Second {
-						logger.Log("scrape %s:%s skipping — hook fresh (%s)", ap.session, ap.window, time.Since(win.Agent.LastChanged).Round(time.Millisecond))
+					if win.Agent != nil && (win.Agent.FromHook || win.Agent.FromTranscript) && time.Since(win.Agent.LastChanged) < 10*time.Second {
+						logger.Log("scrape %s:%s skipping — authoritative source fresh (%s)", ap.session, ap.window, time.Since(win.Agent.LastChanged).Round(time.Millisecond))
 						goto nextAgent
 					}
 				}
@@ -472,7 +542,7 @@ func (m Model) scrapeAgents() tea.Cmd {
 						if win.Index == ap.winIndex && win.Agent != nil {
 							model = win.Agent.Model
 							ctxPct = win.Agent.ContextPct
-							if win.Agent.FromHook && time.Since(win.Agent.LastChanged) < 10*time.Second {
+							if (win.Agent.FromHook || win.Agent.FromTranscript) && time.Since(win.Agent.LastChanged) < 10*time.Second {
 								skipWrite = true
 							}
 						}
