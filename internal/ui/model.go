@@ -391,14 +391,18 @@ func (m Model) scrapeAgents() tea.Cmd {
 			}
 		}
 
-		// Clear agents from windows that no longer have one
+		// When an agent process disappears, transition to done (not clear).
+		// The checkmark stays until the user visits the window.
 		sessions := m.store.Sessions()
 		for _, sess := range sessions {
 			for _, win := range sess.Windows {
 				key := fmt.Sprintf("%s:%d", sess.Name, win.Index)
 				if !seen[key] && win.Agent != nil && win.Agent.State != detect.StateDone {
-					logger.Log("scrape %s agent gone, clearing", key)
-					m.store.ClearAgent(sess.Name, win.Index)
+					logger.Log("scrape %s agent exited, transitioning to done", key)
+					m.store.SetAgentState(sess.Name, win.Index, state.AgentInfo{
+						Name:  win.Agent.Name,
+						State: detect.StateDone,
+					})
 				}
 			}
 		}
