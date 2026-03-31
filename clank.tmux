@@ -61,12 +61,20 @@ ensure() {
     log "ensure: swap-pane clank=$clank_pane placeholder=$placeholder"
     tmux swap-pane -s "$clank_pane" -t "$placeholder" 2>>"$LOG"
   else
-    log "ensure: join-pane clank=$clank_pane"
-    local target_pane
-    target_pane=$(tmux list-panes -F '#{pane_id} #{pane_current_command}' 2>/dev/null \
-      | awk '$2 != "clank" {print $1; exit}')
-    [ -z "$target_pane" ] && return
-    tmux join-pane -hb -l "$WIDTH" -t "$target_pane" -s "$clank_pane" 2>>"$LOG"
+    # No placeholder — create one first, then swap (avoids resize flash)
+    log "ensure: creating placeholder then swapping"
+    tmux split-window -hb -l "$WIDTH" -d "exec cat" 2>>"$LOG"
+    placeholder=$(find_placeholder)
+    if [ -n "$placeholder" ]; then
+      tmux swap-pane -s "$clank_pane" -t "$placeholder" 2>>"$LOG"
+    else
+      # Last resort fallback
+      local target_pane
+      target_pane=$(tmux list-panes -F '#{pane_id} #{pane_current_command}' 2>/dev/null \
+        | awk '$2 != "clank" {print $1; exit}')
+      [ -z "$target_pane" ] && return
+      tmux join-pane -hb -l "$WIDTH" -t "$target_pane" -s "$clank_pane" 2>>"$LOG"
+    fi
   fi
 
   # Ensure correct size regardless of client terminal or pane layout
