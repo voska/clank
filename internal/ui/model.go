@@ -489,8 +489,12 @@ func (m Model) scrapeAgents() tea.Cmd {
 					if win.Index != ap.winIndex {
 						continue
 					}
-					if win.Agent != nil && (win.Agent.FromHook || win.Agent.FromTranscript) && time.Since(win.Agent.LastChanged) < 10*time.Second {
-						logger.Log("scrape %s:%s skipping — authoritative source fresh (%s)", ap.session, ap.window, time.Since(win.Agent.LastChanged).Round(time.Millisecond))
+					if win.Agent != nil && win.Agent.FromTranscript {
+						// Transcript is actively watching — always trust it over scraping
+						goto nextAgent
+					}
+					if win.Agent != nil && win.Agent.FromHook && time.Since(win.Agent.LastChanged) < 10*time.Second {
+						logger.Log("scrape %s:%s skipping — hook fresh (%s)", ap.session, ap.window, time.Since(win.Agent.LastChanged).Round(time.Millisecond))
 						goto nextAgent
 					}
 				}
@@ -542,7 +546,9 @@ func (m Model) scrapeAgents() tea.Cmd {
 						if win.Index == ap.winIndex && win.Agent != nil {
 							model = win.Agent.Model
 							ctxPct = win.Agent.ContextPct
-							if (win.Agent.FromHook || win.Agent.FromTranscript) && time.Since(win.Agent.LastChanged) < 10*time.Second {
+							if win.Agent.FromTranscript {
+								skipWrite = true
+							} else if win.Agent.FromHook && time.Since(win.Agent.LastChanged) < 10*time.Second {
 								skipWrite = true
 							}
 						}
