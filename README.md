@@ -4,80 +4,76 @@ A tmux sidebar that shows your AI agent fleet at a glance. Sessions are
 projects, windows are workstreams, and every window shows whether its agent is
 running, waiting for input, or done.
 
+Built for [Claude Code](https://code.claude.com) and [Factory Droid](https://factory.ai).
+
+## How it works
+
+Clank uses a three-tier detection stack, prioritized by reliability:
+
+1. **JSONL transcript watching** — Claude Code writes structured transcripts to
+   `~/.claude/projects/`. Clank watches these files via fsnotify for near-instant,
+   definitive state detection. Zero configuration needed.
+2. **Hook bridge** — optional bash script that receives Claude Code lifecycle
+   events (prompt submitted, tool running, agent stopped) and pushes them to
+   clank's Unix socket for instant state transitions and Ghostty notifications.
+3. **Content scraping** — fallback for agents without transcripts (Droid, Aider,
+   Codex). Captures tmux pane content and pattern-matches against known TUI
+   indicators.
+
 ## Installation
-
-### Homebrew
-
-```bash
-brew install voska/tap/clank
-```
-
-### TPM (tmux Plugin Manager)
-
-Add to `~/.config/tmux/tmux.conf`:
-
-```
-set -g @plugin 'voska/clank'
-```
-
-Then press `prefix + I` to install.
 
 ### From source
 
 ```bash
 git clone https://github.com/voska/clank.git
 cd clank
-make install
+make build
 ```
 
-## Quick Start
+### tmux configuration
 
-1. Install clank via TPM or Homebrew
-2. Press `prefix + Ctrl-s` to toggle the sidebar
-3. Clank automatically detects Claude Code and Droid instances
+Add to `~/.config/tmux/tmux.conf`:
 
-No configuration required for basic agent detection. For richer metadata
-(model name, context usage), set up the hook bridge:
+```tmux
+set -g @clank-width "22"
+bind o run-shell "$HOME/Developer/clank/clank.tmux toggle"
+bind O run-shell "$HOME/Developer/clank/clank.tmux focus"
+```
+
+Reload with `prefix + r`, then `prefix + o` to toggle the sidebar.
+
+## Features
+
+- **Per-window agent state** — running (spinner + timer), done (checkmark), waiting (needs permission)
+- **JSONL transcript watching** — primary detection for Claude Code, event-driven via fsnotify
+- **Persistent sidebar** — follows you across windows and sessions via tmux hooks
+- **Mouse clickable** — click a window to switch to it, focus goes to the main pane
+- **Unseen markers** — checkmark appears when an agent finishes; clears when you visit the window
+- **State persistence** — timers and states survive clank restarts
+- **Ghostty notifications** — OSC 777 banners + bell over SSH (via hook bridge)
+- **Multi-client aware** — auto-resizes when terminal dimensions change
+
+## Navigation
+
+| Key        | Action                    |
+|------------|---------------------------|
+| `j` / `↓`  | Move down                |
+| `k` / `↑`  | Move up                  |
+| `Enter`    | Switch to window          |
+| `1`-`9`    | Jump to session by index  |
+| `q`        | Hide sidebar              |
+| Mouse click | Switch to window         |
+
+## Hook Bridge (optional)
+
+The hook bridge adds instant state transitions and Ghostty desktop notifications.
 
 ```bash
 cp agent-hook-bridge ~/.local/bin/
 chmod +x ~/.local/bin/agent-hook-bridge
 ```
 
-Then add hooks to `~/.claude/settings.json` — see [Hook Bridge](#hook-bridge).
-
-## Features
-
-- **Per-window agent state**: running, waiting, done, error
-- **Zero-config detection**: identifies agents from process name + terminal content
-- **Collapsible sessions**: `Space` to collapse, number keys to jump
-- **Unseen markers**: dot indicator when state changes while you're elsewhere
-- **Ghostty notifications**: OSC 777 + bell, works over SSH
-- **Hook bridge**: optional richer metadata from Claude Code hooks
-
-## Navigation
-
-| Key        | Action                            |
-|------------|-----------------------------------|
-| `j` / `↓`  | Move down                        |
-| `k` / `↑`  | Move up                          |
-| `Enter`    | Switch to window / toggle collapse |
-| `Space`    | Toggle session collapse           |
-| `1`-`9`    | Jump to session by index          |
-| `q`        | Hide sidebar                      |
-
-## Configuration
-
-Set options in `tmux.conf`:
-
-```
-set -g @clank-width 30        # sidebar width (default: 30)
-set -g @clank-position left   # left or right (default: left)
-```
-
-## Hook Bridge
-
-For Claude Code integration with model/context metadata:
+Add to `~/.claude/settings.json`:
 
 ```json
 {
@@ -85,18 +81,31 @@ For Claude Code integration with model/context metadata:
     "UserPromptSubmit": [{"matcher": "", "hooks": [{"type": "command", "command": "$HOME/.local/bin/agent-hook-bridge submit"}]}],
     "Notification": [{"matcher": "", "hooks": [{"type": "command", "command": "$HOME/.local/bin/agent-hook-bridge notification"}]}],
     "Stop": [{"hooks": [{"type": "command", "command": "$HOME/.local/bin/agent-hook-bridge stop"}]}],
-    "StatusLine": [{"hooks": [{"type": "command", "command": "$HOME/.local/bin/agent-hook-bridge statusline"}]}]
+    "SessionStart": [{"hooks": [{"type": "command", "command": "$HOME/.local/bin/agent-hook-bridge session-start"}]}],
+    "SessionEnd": [{"hooks": [{"type": "command", "command": "$HOME/.local/bin/agent-hook-bridge session-end"}]}],
+    "SubagentStop": [{"hooks": [{"type": "command", "command": "$HOME/.local/bin/agent-hook-bridge subagent-stop"}]}]
   }
 }
 ```
 
 ## tmux Requirements
 
-```
+```tmux
 set -g allow-passthrough all    # for Ghostty notifications over SSH
 set -g monitor-bell on
 set -g bell-action other
+set -g mouse on                 # for mouse click support
 ```
+
+## Architecture
+
+```
+Claude Code JSONL ──▶ fsnotify ──▶ transcript watcher ──▶ state store ──▶ TUI
+Claude Code hooks ──▶ hook bridge ──▶ Unix socket ──────▶ state store
+Droid/other agents ──▶ capture-pane ──▶ content scrape ──▶ state store
+```
+
+Single Go binary (~4MB). Bubbletea v1 + Lipgloss. Catppuccin Mocha palette.
 
 ## License
 
