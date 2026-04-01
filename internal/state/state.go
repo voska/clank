@@ -294,6 +294,30 @@ func (s *Store) Load(path string) error {
 	return nil
 }
 
+// PruneStale removes persisted entries for sessions/windows that no longer exist.
+func (s *Store) PruneStale() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.persisted == nil {
+		return
+	}
+
+	// Build set of valid keys from current sessions
+	valid := make(map[string]bool)
+	for _, sess := range s.sessions {
+		for _, win := range sess.Windows {
+			valid[winKey(sess.Name, win.Index)] = true
+		}
+	}
+
+	for key := range s.persisted {
+		if !valid[key] {
+			delete(s.persisted, key)
+		}
+	}
+}
+
 // restoreAgent checks persisted state when a new agent is first detected.
 func (s *Store) restoreAgent(key string) *AgentInfo {
 	if s.persisted == nil {

@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+
 	"github.com/voska/clank/internal/detect"
 )
 
@@ -15,7 +16,10 @@ type rawLine struct {
 	Subtype string `json:"subtype"`
 	Message *struct {
 		StopReason *string `json:"stop_reason"`
+		Content    json.RawMessage `json:"content"`
 	} `json:"message"`
+	// For system error messages
+	Level string `json:"level"`
 }
 
 // stateRelevant returns true if this line type indicates agent state.
@@ -50,6 +54,14 @@ func DeriveState(line rawLine) detect.State {
 		switch line.Subtype {
 		case "turn_duration", "stop_hook_summary":
 			return detect.StateDone
+		}
+		// Check for rate limit / API error system messages
+		if line.Level == "error" {
+			content := string(line.Message.Content)
+			if strings.Contains(content, "rate") || strings.Contains(content, "overloaded") ||
+				strings.Contains(content, "529") || strings.Contains(content, "limit") {
+				return detect.StateError
+			}
 		}
 	}
 

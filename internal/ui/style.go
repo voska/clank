@@ -45,7 +45,7 @@ var (
 
 const (
 	glyphRunning   = "●"
-	glyphWaiting   = "⟳"
+	glyphWaiting   = "⏸"
 	glyphDone      = "✓"
 	glyphError     = "✗"
 	glyphExpanded  = "▾"
