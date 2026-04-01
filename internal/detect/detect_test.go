@@ -163,6 +163,29 @@ func TestDetectState(t *testing.T) {
 			want:    StateDone,
 		},
 		{
+			name:    "error: rate limited",
+			content: "You've been rate limited. Please wait.\nResets at 3:00 PM\n❯ \nstatus bar",
+			want:    StateError,
+			reason:  "rate_limit",
+		},
+		{
+			name:    "error: usage limit",
+			content: "Claude usage limit reached. Resets at 5pm.\n❯ \nstatus",
+			want:    StateError,
+			reason:  "rate_limit",
+		},
+		{
+			name:    "error: overloaded",
+			content: "Error: 529 overloaded_error: API is overloaded\n❯ \nstatus",
+			want:    StateError,
+			reason:  "rate_limit",
+		},
+		{
+			name:    "droid running despite mission prompt visible",
+			content: "⠸ Invoking tools...  (Press ESC to stop)\n╭── Mission ──╮\n│ >  │\n╰─────╯\n[⏱ 1h]? for help\nIDE ◌",
+			want:    StateRunning,
+		},
+		{
 			name:    "exited: shell prompt",
 			content: "some output\n$ ",
 			want:    StateExited,
