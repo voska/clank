@@ -29,6 +29,75 @@ func TestIdentifyAgent(t *testing.T) {
 	}
 }
 
+func TestDetectStateFromTitle(t *testing.T) {
+	tests := []struct {
+		name  string
+		title string
+		want  State
+	}{
+		{"busy: braille frame 1", "⠂ fix-auth-bug", StateRunning},
+		{"busy: braille frame 2", "⠐ optimize-claude-code-config", StateRunning},
+		{"idle: static prefix", "✳ Claude Code", StateDone},
+		{"idle: static prefix with long name", "✳ Migrate Antfarm blog generation to Claude Code", StateDone},
+		{"unknown: empty", "", StateUnknown},
+		{"unknown: no prefix", "some random title", StateUnknown},
+		{"unknown: shell title", "zsh", StateUnknown},
+		{"busy: prefix only", "⠂", StateRunning},
+		{"idle: prefix only", "✳", StateDone},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := DetectStateFromTitle(tt.title)
+			if got != tt.want {
+				t.Errorf("DetectStateFromTitle(%q) = %q, want %q", tt.title, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDetectWaiting(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		waiting bool
+		reason  string
+	}{
+		{
+			name:    "permission prompt",
+			content: "some output\n? Allow Read tool on file.go?\n  Yes, allow once",
+			waiting: true,
+			reason:  "permission",
+		},
+		{
+			name:    "decision prompt",
+			content: "Do you want?\n  No, and tell Claude what to do differently",
+			waiting: true,
+			reason:  "decision",
+		},
+		{
+			name:    "no waiting indicator",
+			content: "some output\n❯ \nstatus bar",
+			waiting: false,
+		},
+		{
+			name:    "empty",
+			content: "",
+			waiting: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, reason := DetectWaiting(tt.content)
+			if got != tt.waiting {
+				t.Errorf("waiting: got %v, want %v", got, tt.waiting)
+			}
+			if tt.reason != "" && reason != tt.reason {
+				t.Errorf("reason: got %q, want %q", reason, tt.reason)
+			}
+		})
+	}
+}
+
 func TestDetectState(t *testing.T) {
 	tests := []struct {
 		name    string

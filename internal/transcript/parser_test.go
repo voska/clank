@@ -1,12 +1,23 @@
 package transcript
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/voska/clank/internal/detect"
 )
+
+func msg(stopReason *string) *struct {
+	StopReason *string         `json:"stop_reason"`
+	Content    json.RawMessage `json:"content"`
+} {
+	return &struct {
+		StopReason *string         `json:"stop_reason"`
+		Content    json.RawMessage `json:"content"`
+	}{StopReason: stopReason}
+}
 
 func TestDeriveState(t *testing.T) {
 	endTurn := "end_turn"
@@ -19,15 +30,9 @@ func TestDeriveState(t *testing.T) {
 	}{
 		{"user message", rawLine{Type: "user"}, detect.StateRunning},
 		{"user tool result", rawLine{Type: "user"}, detect.StateRunning},
-		{"assistant end_turn", rawLine{Type: "assistant", Message: &struct {
-			StopReason *string `json:"stop_reason"`
-		}{StopReason: &endTurn}}, detect.StateDone},
-		{"assistant tool_use", rawLine{Type: "assistant", Message: &struct {
-			StopReason *string `json:"stop_reason"`
-		}{StopReason: &toolUse}}, detect.StateRunning},
-		{"assistant streaming", rawLine{Type: "assistant", Message: &struct {
-			StopReason *string `json:"stop_reason"`
-		}{StopReason: nil}}, detect.StateRunning},
+		{"assistant end_turn", rawLine{Type: "assistant", Message: msg(&endTurn)}, detect.StateDone},
+		{"assistant tool_use", rawLine{Type: "assistant", Message: msg(&toolUse)}, detect.StateRunning},
+		{"assistant streaming", rawLine{Type: "assistant", Message: msg(nil)}, detect.StateRunning},
 		{"assistant no message", rawLine{Type: "assistant"}, detect.StateRunning},
 		{"system turn_duration", rawLine{Type: "system", Subtype: "turn_duration"}, detect.StateDone},
 		{"system stop_hook_summary", rawLine{Type: "system", Subtype: "stop_hook_summary"}, detect.StateDone},

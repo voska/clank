@@ -32,6 +32,7 @@ type Model struct {
 	height             int
 	items              []item
 	screenRows         []int
+	pruned             bool
 }
 
 type item struct {
@@ -390,6 +391,12 @@ func (m Model) pollTmux() tea.Cmd {
 		}
 		m.store.UpdateTree(snapshots)
 
+		// Prune stale persisted entries on first poll
+		if !m.pruned {
+			m.store.PruneStale()
+			m.pruned = true
+		}
+
 		// Auto-clear unseen when user visits a window (active = they're looking at it)
 		for _, snap := range snapshots {
 			for _, win := range snap.Windows {
@@ -420,6 +427,7 @@ func (m Model) scrapeAgents() tea.Cmd {
 			winIndex  int
 			paneIndex int
 			panePID   int
+			title     string
 		}
 		var agents []agentPane
 		var claudePanePIDs []int
@@ -440,6 +448,7 @@ func (m Model) scrapeAgents() tea.Cmd {
 					winIndex:  p.WinIndex,
 					paneIndex: p.PaneIndex,
 					panePID:   p.PanePID,
+					title:     p.Title,
 				})
 				if agentName == "claude" {
 					claudePanePIDs = append(claudePanePIDs, p.PanePID)
@@ -501,37 +510,62 @@ func (m Model) scrapeAgents() tea.Cmd {
 			}
 
 			{
-				content, err := m.mux.CapturePaneByIndex(ap.session, ap.winIndex, ap.paneIndex, 30)
-				if err != nil {
-					continue
-				}
-				agentState, reason := detect.DetectState(content)
+				var agentState detect.State
+				var reason string
 
-				// Look up existing state to avoid flipping done→running on unknown
-				var existingState detect.State
-				for _, sess := range m.store.Sessions() {
-					if sess.Name != ap.session {
+				// Title-based detection for Claude Code: fast path, no scraping needed
+				titleState := detect.DetectStateFromTitle(ap.title)
+
+				if titleState == detect.StateRunning {
+					// Title says busy — trust it, no scrape needed
+					agentState = detect.StateRunning
+				} else if titleState == detect.StateDone {
+					// Title says not-busy — scrape bottom lines only for waiting detection
+					content, err := m.mux.CapturePaneByIndex(ap.session, ap.winIndex, ap.paneIndex, 30)
+					if err == nil {
+						if waiting, wr := detect.DetectWaiting(content); waiting {
+							agentState = detect.StateWaiting
+							reason = wr
+						} else {
+							agentState = detect.StateDone
+						}
+					} else {
+						agentState = detect.StateDone
+					}
+				} else {
+					// No title match (non-Claude agent, or title not set) — full scrape fallback
+					content, err := m.mux.CapturePaneByIndex(ap.session, ap.winIndex, ap.paneIndex, 30)
+					if err != nil {
 						continue
 					}
-					for _, win := range sess.Windows {
-						if win.Index == ap.winIndex && win.Agent != nil {
-							existingState = win.Agent.State
+					agentState, reason = detect.DetectState(content)
+
+					// Look up existing state to avoid flipping done→running on unknown
+					var existingState detect.State
+					for _, sess := range m.store.Sessions() {
+						if sess.Name != ap.session {
+							continue
+						}
+						for _, win := range sess.Windows {
+							if win.Index == ap.winIndex && win.Agent != nil {
+								existingState = win.Agent.State
+							}
 						}
 					}
-				}
 
-				switch agentState {
-				case detect.StateUnknown:
-					if existingState != "" {
-						agentState = existingState // preserve existing state
-					} else {
-						agentState = detect.StateRunning // new agent, assume running
+					switch agentState {
+					case detect.StateUnknown:
+						if existingState != "" {
+							agentState = existingState
+						} else {
+							agentState = detect.StateRunning
+						}
+					case detect.StateExited:
+						agentState = detect.StateDone
 					}
-				case detect.StateExited:
-					agentState = detect.StateDone
 				}
 
-				logger.Log("scrape %s:%s agent=%s state=%s", ap.session, ap.window, ap.name, agentState)
+				logger.Log("scrape %s:%s agent=%s state=%s (title=%q)", ap.session, ap.window, ap.name, agentState, ap.title)
 
 				// Re-check hook freshness before writing — a hook may have fired
 				// during capture-pane (race condition)

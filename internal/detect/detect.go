@@ -25,6 +25,15 @@ var knownAgents = map[string]string{
 
 var versionPattern = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
 
+// Claude Code title prefixes (from source: REPL.tsx)
+// Busy: animated braille frames ⠂ / ⠐ (alternating at 960ms)
+// Idle/waiting: static ✳
+const (
+	titlePrefixIdle  = "✳"
+	titlePrefixBusy1 = "⠂"
+	titlePrefixBusy2 = "⠐"
+)
+
 func IdentifyAgent(command string) string {
 	if agent, ok := knownAgents[command]; ok {
 		return agent
@@ -35,6 +44,43 @@ func IdentifyAgent(command string) string {
 	return ""
 }
 
+// DetectStateFromTitle uses the Claude Code pane title prefix to determine
+// busy vs not-busy. Returns StateRunning for animated prefixes, StateDone
+// for the static prefix, or StateUnknown if the title doesn't match.
+func DetectStateFromTitle(title string) State {
+	if title == "" {
+		return StateUnknown
+	}
+	// Title format: "{prefix} {session name}" e.g. "✳ Claude Code" or "⠂ fix-auth-bug"
+	if strings.HasPrefix(title, titlePrefixBusy1) || strings.HasPrefix(title, titlePrefixBusy2) {
+		return StateRunning
+	}
+	if strings.HasPrefix(title, titlePrefixIdle) {
+		return StateDone // could be idle or waiting — caller should check content for waiting
+	}
+	return StateUnknown
+}
+
+// DetectWaiting checks pane content (bottom lines only) for permission/decision
+// prompts. Use this as a secondary check when the title indicates not-busy.
+func DetectWaiting(content string) (bool, string) {
+	if content == "" {
+		return false, ""
+	}
+	bottom := lastNLines(content, 8)
+
+	if strings.Contains(bottom, "? Allow") || strings.Contains(bottom, "Yes, allow") {
+		return true, "permission"
+	}
+	if strings.Contains(bottom, "No, and tell Claude what to do differently") {
+		return true, "decision"
+	}
+	return false, ""
+}
+
+// DetectState detects Claude Code state from pane content. This is the
+// fallback path used when title-based detection isn't available (e.g. for
+// droid or other agents that don't set OSC titles).
 func DetectState(content string) (State, string) {
 	if content == "" {
 		return StateUnknown, ""
@@ -42,6 +88,17 @@ func DetectState(content string) (State, string) {
 
 	tail := content
 	bottom := lastNLines(tail, 8)
+
+	// Rate limit / API error — highest priority, shows ✗
+	if strings.Contains(tail, "rate limited") ||
+		strings.Contains(tail, "usage limit reached") ||
+		strings.Contains(tail, "Rate limit") ||
+		strings.Contains(tail, "Resets at") ||
+		strings.Contains(tail, "overloaded_error") ||
+		strings.Contains(tail, "529") && strings.Contains(tail, "overloaded") ||
+		strings.Contains(tail, "api_error") {
+		return StateError, "rate_limit"
+	}
 
 	// Droid active execution — always takes priority.
 	// The mission prompt (│ >) is visible even during execution, so we must
