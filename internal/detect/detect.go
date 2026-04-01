@@ -110,26 +110,25 @@ func DetectState(content string) (State, string) {
 		return StateRunning, ""
 	}
 
-	// Droid idle: only when NOT executing
-	if strings.Contains(bottom, "? for help") ||
-		strings.Contains(bottom, "↑/↓ Navigate") ||
-		strings.Contains(bottom, "Enter Select") {
-		return StateDone, ""
+	// Droid idle: only when NOT actively executing
+	if !strings.Contains(bottom, "Press ESC to stop") &&
+		!strings.Contains(bottom, "Invoking") &&
+		!strings.Contains(bottom, "Thinking") {
+		if strings.Contains(bottom, "? for help") ||
+			strings.Contains(bottom, "↑/↓ Navigate") ||
+			strings.Contains(bottom, "Enter Select") {
+			return StateDone, ""
+		}
 	}
 
 	// Droid idle: empty mission prompt box (│ > │ or │ >  │)
-	if strings.Contains(bottom, "│ >") && strings.Contains(bottom, "│") {
-		trimmed := ""
-		for _, line := range strings.Split(bottom, "\n") {
-			if strings.Contains(line, "│ >") {
-				trimmed = strings.TrimSpace(line)
-				break
-			}
-		}
-		// Only match if the prompt content is empty or very short (user hasn't typed a long command)
-		if strings.Contains(trimmed, "│ >") && !strings.Contains(trimmed, "Invoking") {
-			return StateDone, ""
-		}
+	// But NOT if active indicators are visible anywhere in the bottom lines
+	if strings.Contains(bottom, "│ >") && strings.Contains(bottom, "│") &&
+		!strings.Contains(bottom, "Press ESC to stop") &&
+		!strings.Contains(bottom, "Invoking") &&
+		!strings.Contains(bottom, "Thinking") &&
+		!strings.Contains(bottom, "sub-agents running") {
+		return StateDone, ""
 	}
 
 	// Claude waiting: permission prompt (bottom of screen only)
