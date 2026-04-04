@@ -19,6 +19,16 @@ jobs:
         with:
           version: latest
 
+  mod-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - run: go mod verify
+      - run: go mod tidy && git diff --exit-code go.mod go.sum
+
   test:
     runs-on: ubuntu-latest
     strategy:

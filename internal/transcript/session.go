@@ -56,7 +56,7 @@ func TranscriptPath(info SessionInfo) string {
 }
 
 // encodeCWD encodes a CWD path the way Claude Code does:
-// /Users/matt/Developer/proj-b → -Users-matt-Developer-proj-b
+// /home/user/projects/myapp → -home-user-projects-myapp
 func encodeCWD(cwd string) string {
 	return strings.ReplaceAll(cwd, "/", "-")
 }

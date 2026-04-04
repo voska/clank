@@ -37,8 +37,8 @@ type Mux interface {
 	AllPanes() ([]PaneInfo, error)
 	PaneCommand(target string) (string, error)
 	PaneCommands(session string, windowIndex int) ([]string, error)
-	CapturePane(target string, lines int) (string, error)
-	CapturePaneByIndex(session string, windowIndex, paneIndex, lines int) (string, error)
+	CapturePane(target string) (string, error)
+	CapturePaneByIndex(session string, windowIndex, paneIndex int) (string, error)
 	SwitchWindow(session string, windowIndex int) error
 }
 
@@ -120,8 +120,7 @@ func (l *Live) PaneCommands(session string, windowIndex int) ([]string, error) {
 	return cmds, nil
 }
 
-func (l *Live) CapturePane(target string, lines int) (string, error) {
-	// Capture visible pane content only (no scrollback history)
+func (l *Live) CapturePane(target string) (string, error) {
 	out, err := run("capture-pane", "-t", target, "-p")
 	if err != nil {
 		return "", fmt.Errorf("capture-pane %s: %w", target, err)
@@ -129,10 +128,9 @@ func (l *Live) CapturePane(target string, lines int) (string, error) {
 	return out, nil
 }
 
-// CapturePaneByIndex captures a specific pane by session:window.pane index.
-func (l *Live) CapturePaneByIndex(session string, windowIndex, paneIndex, lines int) (string, error) {
+func (l *Live) CapturePaneByIndex(session string, windowIndex, paneIndex int) (string, error) {
 	target := fmt.Sprintf("%s:%d.%d", session, windowIndex, paneIndex)
-	return l.CapturePane(target, lines)
+	return l.CapturePane(target)
 }
 
 func (l *Live) SwitchWindow(session string, windowIndex int) error {

@@ -318,6 +318,50 @@ func (s *Store) PruneStale() {
 	}
 }
 
+// GetAgent returns a copy of the agent info for a specific window, or nil.
+func (s *Store) GetAgent(session string, windowIndex int) *AgentInfo {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, sess := range s.sessions {
+		if sess.Name != session {
+			continue
+		}
+		for _, win := range sess.Windows {
+			if win.Index == windowIndex && win.Agent != nil {
+				cp := *win.Agent
+				return &cp
+			}
+		}
+	}
+	return nil
+}
+
+// HasActiveAgents returns true if any window in the session has an agent
+// that needs attention: running, waiting, errored, or done-but-unseen.
+func (s *Store) HasActiveAgents(session string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, sess := range s.sessions {
+		if sess.Name != session {
+			continue
+		}
+		for _, win := range sess.Windows {
+			if win.Agent == nil {
+				continue
+			}
+			switch win.Agent.State {
+			case detect.StateRunning, detect.StateWaiting, detect.StateError:
+				return true
+			case detect.StateDone:
+				if win.HasUnseen {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
 // restoreAgent checks persisted state when a new agent is first detected.
 func (s *Store) restoreAgent(key string) *AgentInfo {
 	if s.persisted == nil {

@@ -11,23 +11,18 @@ import (
 )
 
 func renderSessionHeader(index int, name string, collapsed bool, highestState detect.State, selected bool, width int) string {
-	prefix := fmt.Sprintf("%d", index)
-	styledName := sessionStyle.Render(name)
 	if selected {
-		prefix = cursorStyle.Render(prefix)
-		styledName = cursorStyle.Render(name)
+		return cursorStyle.Render(name)
 	}
-
-	left := fmt.Sprintf(" %s %s", prefix, styledName)
-	return left
+	return sessionStyle.Render(name)
 }
 
 func renderWindowLine(win state.WindowState, width int, selected bool, spinnerFrame int) string {
-	indent := "    "
+	indent := "  "
 
 	name := win.Name
 	// Truncate long names to leave room for indicators
-	maxNameLen := width - 14 // indent(4) + gap(1) + timer(4) + space(1) + icon(1) + margin(3)
+	maxNameLen := width - 12 // indent(2) + gap(1) + timer(4) + space(1) + icon(1) + margin(3)
 	if maxNameLen < 8 {
 		maxNameLen = 8
 	}

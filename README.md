@@ -22,6 +22,12 @@ Clank uses a three-tier detection stack, prioritized by reliability:
 
 ## Installation
 
+### Homebrew
+
+```bash
+brew install voska/tap/clank
+```
+
 ### From source
 
 ```bash
@@ -30,7 +36,18 @@ cd clank
 make build
 ```
 
-### tmux configuration
+### TPM (tmux plugin manager)
+
+Add to `~/.config/tmux/tmux.conf`:
+
+```tmux
+set -g @plugin 'voska/clank'
+set -g @clank-width "22"     # optional, default 30
+set -g @clank-key "o"        # optional, default o
+set -g @clank-focus-key "O"  # optional, default O
+```
+
+### Manual tmux configuration
 
 Add to `~/.config/tmux/tmux.conf`:
 
@@ -50,19 +67,20 @@ Reload with `prefix + r`, then `prefix + o` to toggle the sidebar.
 - **Mouse clickable** — click a window to switch to it, focus goes to the main pane
 - **Unseen markers** — checkmark appears when an agent finishes; clears when you visit the window
 - **State persistence** — timers and states survive clank restarts
-- **Ghostty notifications** — OSC 777 banners + bell over SSH (via hook bridge)
+- **Desktop notifications** — Ghostty (OSC 777), iTerm2 (OSC 9), Kitty (OSC 99), macOS native (osascript)
 - **Multi-client aware** — auto-resizes when terminal dimensions change
 
 ## Navigation
 
-| Key        | Action                    |
-|------------|---------------------------|
-| `j` / `↓`  | Move down                |
-| `k` / `↑`  | Move up                  |
-| `Enter`    | Switch to window          |
-| `1`-`9`    | Jump to session by index  |
-| `q`        | Hide sidebar              |
-| Mouse click | Switch to window         |
+| Key        | Action                           |
+|------------|----------------------------------|
+| `j` / `↓`  | Move down                       |
+| `k` / `↑`  | Move up                         |
+| `Enter`    | Switch to window                 |
+| `1`-`9`    | Jump to session by index         |
+| `f`        | Filter: show only agent sessions |
+| `q`        | Hide sidebar                     |
+| Mouse click | Switch to window                |
 
 ## Hook Bridge (optional)
 

@@ -186,9 +186,50 @@ func TestDetectState(t *testing.T) {
 			want:    StateRunning,
 		},
 		{
+			name:    "droid: sub-agents running",
+			content: "5 sub-agents running\nProgress: 3/5 complete\n│ >  │\n? for help",
+			want:    StateRunning,
+		},
+		{
+			name:    "droid: idle with navigation bar",
+			content: "Done.\n\n? for help  ↑/↓ Navigate  Enter Select",
+			want:    StateDone,
+		},
+		{
+			name:    "droid: executing with ESC prompt",
+			content: "Executing...  (Press ESC to stop)\n│ > deploy │",
+			want:    StateRunning,
+		},
+		{
+			name:    "droid: empty mission prompt idle",
+			content: "completed.\n│ >  │\n│ >  │\nsome footer",
+			want:    StateDone,
+		},
+		{
+			name:    "running: spinner char in output",
+			content: "⠋ Building...\nCompiling 3 files",
+			want:    StateRunning,
+		},
+		{
 			name:    "exited: shell prompt",
 			content: "some output\n$ ",
 			want:    StateExited,
+		},
+		{
+			name:    "exited: zsh percent prompt",
+			content: "some output\n%",
+			want:    StateExited,
+		},
+		{
+			name:    "error: api_error in output",
+			content: "api_error: something went wrong\n❯ \nstatus",
+			want:    StateError,
+			reason:  "rate_limit",
+		},
+		{
+			name:    "done: droid bare > prompt",
+			content: "finished processing\n│ > │\nfooter",
+			want:    StateDone,
 		},
 		{
 			name:    "unknown: empty",

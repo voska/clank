@@ -21,18 +21,19 @@ type Config struct {
 }
 
 type Model struct {
-	config             Config
-	store              *state.Store
-	mux                tmux.Mux
-	events             <-chan socket.Event
-	transcriptWatcher  *transcript.Watcher
-	cursor             int
-	spinnerFrame       int
-	width              int
-	height             int
-	items              []item
-	screenRows         []int
-	pruned             bool
+	config            Config
+	store             *state.Store
+	mux               tmux.Mux
+	events            <-chan socket.Event
+	transcriptWatcher *transcript.Watcher
+	cursor            int
+	spinnerFrame      int
+	width             int
+	height            int
+	items             []item
+	screenRows        []int
+	pruned            bool
+	filterActive      bool
 }
 
 type item struct {
@@ -43,11 +44,43 @@ type item struct {
 	winIndex  int
 }
 
+// agentPane holds info about a detected agent pane from tmux.
+type agentPane struct {
+	name      string
+	session   string
+	window    string
+	winIndex  int
+	paneIndex int
+	panePID   int
+	title     string
+}
+
 type tickMsg struct{}
 type scrapeMsg struct{}
 type spinnerMsg struct{}
 type socketEventMsg socket.Event
 type transcriptUpdateMsg transcript.StateUpdate
+
+type pollResultMsg struct {
+	snapshots []state.SessionSnapshot
+}
+
+type scrapeResultMsg struct {
+	updates []scrapedAgent
+	exits   []agentExit
+}
+
+type scrapedAgent struct {
+	session  string
+	winIndex int
+	info     state.AgentInfo
+}
+
+type agentExit struct {
+	session  string
+	winIndex int
+	name     string
+}
 
 func NewModel(store *state.Store, mux tmux.Mux, events <-chan socket.Event, config Config, tw *transcript.Watcher) Model {
 	return Model{
@@ -74,13 +107,27 @@ func (m Model) Init() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
+func (m Model) visibleSessions() []state.SessionState {
+	sessions := m.store.Sessions()
+	if !m.filterActive {
+		return sessions
+	}
+	var filtered []state.SessionState
+	for _, s := range sessions {
+		if m.store.HasActiveAgents(s.Name) {
+			filtered = append(filtered, s)
+		}
+	}
+	return filtered
+}
+
 // rebuildItems flattens the session/window tree into a navigable list
 // and maps screen rows to item indices. Must be called after any state change.
 func (m *Model) rebuildItems() {
 	m.items = nil
 	m.screenRows = nil
 
-	sessions := m.store.Sessions()
+	sessions := m.visibleSessions()
 
 	// Top padding
 	m.screenRows = append(m.screenRows, -1)
@@ -130,11 +177,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.rebuildItems()
 		return m, nil
 	case tickMsg:
+		return m, m.pollTmux()
+	case pollResultMsg:
+		m.applyPollResult(msg)
 		m.rebuildItems()
-		return m, tea.Batch(m.pollTmux(), m.tickCmd())
+		return m, m.tickCmd()
 	case scrapeMsg:
+		return m, m.scrapeAgents()
+	case scrapeResultMsg:
+		m.applyScrapeResult(msg)
 		m.rebuildItems()
-		return m, tea.Batch(m.scrapeAgents(), m.scrapeCmd())
+		return m, m.scrapeCmd()
 	case spinnerMsg:
 		m.spinnerFrame++
 		return m, m.spinnerCmd()
@@ -151,7 +204,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) View() string {
-	sessions := m.store.Sessions()
+	sessions := m.visibleSessions()
 
 	var b strings.Builder
 	b.WriteString("\n") // top padding
@@ -175,6 +228,15 @@ func (m Model) View() string {
 		}
 	}
 
+	if m.filterActive {
+		if len(m.items) == 0 {
+			b.WriteString(dimStyle.Render("  no active agents"))
+			b.WriteString("\n")
+		}
+		b.WriteString("\n")
+		b.WriteString(dimStyle.Render("  [f] filtered"))
+	}
+
 	return b.String()
 }
 
@@ -190,6 +252,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.cursor > 0 {
 			m.cursor--
 		}
+	case "f":
+		m.filterActive = !m.filterActive
+		m.rebuildItems()
 	case "enter", " ":
 		if m.cursor >= 0 && m.cursor < len(m.items) {
 			it := m.items[m.cursor]
@@ -198,14 +263,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			} else {
 				m.mux.SwitchWindow(it.session, it.winIndex)
 				m.store.ClearUnseen(it.session, it.winIndex)
-			}
-		}
-	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
-		idx := int(msg.String()[0] - '0')
-		for i, it := range m.items {
-			if it.isSession && it.sessIndex == idx {
-				m.cursor = i
-				break
 			}
 		}
 	}
@@ -260,53 +317,37 @@ func (m Model) handleSocketEvent(ev socket.Event) {
 
 	// Metadata-only event (statusline): update model/context without changing state
 	if ev.State == "" {
-		for _, sess := range m.store.Sessions() {
-			if sess.Name != ev.Session {
-				continue
+		existing := m.store.GetAgent(ev.Session, winIdx)
+		if existing != nil {
+			if ev.Model != "" {
+				existing.Model = ev.Model
 			}
-			for _, win := range sess.Windows {
-				if win.Index == winIdx && win.Agent != nil {
-					info := *win.Agent
-					if ev.Model != "" {
-						info.Model = ev.Model
-					}
-					if ev.ContextPct > 0 {
-						info.ContextPct = ev.ContextPct
-					}
-					m.store.SetAgentState(ev.Session, winIdx, info)
-					return
-				}
+			if ev.ContextPct > 0 {
+				existing.ContextPct = ev.ContextPct
 			}
+			m.store.SetAgentState(ev.Session, winIdx, *existing)
 		}
 		return
 	}
 
-	info := state.AgentInfo{
+	m.store.SetAgentState(ev.Session, winIdx, state.AgentInfo{
 		Name:       ev.Agent,
 		State:      detect.State(ev.State),
 		WaitReason: ev.Reason,
 		Model:      ev.Model,
 		ContextPct: ev.ContextPct,
 		FromHook:   true,
-	}
-	m.store.SetAgentState(ev.Session, winIdx, info)
+	})
 }
 
 func (m Model) handleTranscriptUpdate(update transcript.StateUpdate) {
 	logger.Log("transcript %s:%d agent=%s state=%s", update.Session, update.WinIndex, update.AgentName, update.State)
-	// Preserve existing model/context metadata
+	existing := m.store.GetAgent(update.Session, update.WinIndex)
 	var model string
 	var ctxPct float64
-	for _, sess := range m.store.Sessions() {
-		if sess.Name != update.Session {
-			continue
-		}
-		for _, win := range sess.Windows {
-			if win.Index == update.WinIndex && win.Agent != nil {
-				model = win.Agent.Model
-				ctxPct = win.Agent.ContextPct
-			}
-		}
+	if existing != nil {
+		model = existing.Model
+		ctxPct = existing.ContextPct
 	}
 	m.store.SetAgentState(update.Session, update.WinIndex, state.AgentInfo{
 		Name:           update.AgentName,
@@ -316,6 +357,8 @@ func (m Model) handleTranscriptUpdate(update transcript.StateUpdate) {
 		FromTranscript: true,
 	})
 }
+
+// --- Timer commands ---
 
 func (m Model) listenTranscripts() tea.Cmd {
 	if m.transcriptWatcher == nil {
@@ -358,12 +401,14 @@ func (m Model) listenSocket() tea.Cmd {
 	}
 }
 
+// --- Poll ---
+
 func (m Model) pollTmux() tea.Cmd {
 	return func() tea.Msg {
 		sessions, err := m.mux.ListSessions()
 		if err != nil {
 			logger.Log("poll  error listing sessions: %v", err)
-			return nil
+			return pollResultMsg{}
 		}
 
 		var snapshots []state.SessionSnapshot
@@ -389,220 +434,209 @@ func (m Model) pollTmux() tea.Cmd {
 			}
 			snapshots = append(snapshots, snap)
 		}
-		m.store.UpdateTree(snapshots)
+		return pollResultMsg{snapshots: snapshots}
+	}
+}
 
-		// Prune stale persisted entries on first poll
-		if !m.pruned {
-			m.store.PruneStale()
-			m.pruned = true
-		}
+func (m *Model) applyPollResult(msg pollResultMsg) {
+	m.store.UpdateTree(msg.snapshots)
 
-		// Auto-clear unseen when user visits a window (active = they're looking at it)
-		for _, snap := range snapshots {
-			for _, win := range snap.Windows {
-				if win.Active {
-					m.store.ClearUnseen(snap.Name, win.Index)
-				}
+	if !m.pruned {
+		m.store.PruneStale()
+		m.pruned = true
+	}
+
+	for _, snap := range msg.snapshots {
+		for _, win := range snap.Windows {
+			if win.Active {
+				m.store.ClearUnseen(snap.Name, win.Index)
 			}
 		}
-
-		return nil
 	}
+}
+
+// --- Scrape ---
+
+func identifyAgentPanes(allPanes []tmux.PaneInfo) ([]agentPane, []int) {
+	var agents []agentPane
+	var claudePIDs []int
+	seen := make(map[string]bool)
+
+	for _, p := range allPanes {
+		key := fmt.Sprintf("%s:%d", p.Session, p.WinIndex)
+		if seen[key] {
+			continue
+		}
+		agentName := detect.IdentifyAgent(p.Command)
+		if agentName == "" {
+			continue
+		}
+		seen[key] = true
+		agents = append(agents, agentPane{
+			name:      agentName,
+			session:   p.Session,
+			window:    p.Window,
+			winIndex:  p.WinIndex,
+			paneIndex: p.PaneIndex,
+			panePID:   p.PanePID,
+			title:     p.Title,
+		})
+		if agentName == "claude" {
+			claudePIDs = append(claudePIDs, p.PanePID)
+		}
+	}
+	return agents, claudePIDs
+}
+
+func (m Model) trackTranscripts(agents []agentPane, claudePIDs []int) {
+	transcriptMap := transcript.MapPanesToTranscripts(claudePIDs)
+	for _, ap := range agents {
+		if ap.name != "claude" {
+			continue
+		}
+		if tpath, ok := transcriptMap[ap.panePID]; ok {
+			m.transcriptWatcher.Track(ap.session, ap.winIndex, ap.name, tpath)
+		}
+	}
+}
+
+func (m Model) findExitedAgents(seen map[string]bool) []agentExit {
+	var exits []agentExit
+	for _, sess := range m.store.Sessions() {
+		for _, win := range sess.Windows {
+			key := fmt.Sprintf("%s:%d", sess.Name, win.Index)
+			if !seen[key] && win.Agent != nil && win.Agent.State != detect.StateDone {
+				logger.Log("scrape %s agent exited, transitioning to done", key)
+				exits = append(exits, agentExit{
+					session:  sess.Name,
+					winIndex: win.Index,
+					name:     win.Agent.Name,
+				})
+			}
+		}
+	}
+	return exits
+}
+
+func (m Model) shouldSkipScrape(ap agentPane) bool {
+	agent := m.store.GetAgent(ap.session, ap.winIndex)
+	if agent == nil {
+		return false
+	}
+	if agent.FromTranscript {
+		return true
+	}
+	if agent.FromHook && time.Since(agent.LastChanged) < 10*time.Second {
+		logger.Log("scrape %s:%s skipping — hook fresh (%s)", ap.session, ap.window, time.Since(agent.LastChanged).Round(time.Millisecond))
+		return true
+	}
+	return false
+}
+
+func (m Model) detectAgentState(ap agentPane) (detect.State, string) {
+	titleState := detect.DetectStateFromTitle(ap.title)
+
+	if titleState == detect.StateRunning {
+		return detect.StateRunning, ""
+	}
+
+	if titleState == detect.StateDone {
+		content, err := m.mux.CapturePaneByIndex(ap.session, ap.winIndex, ap.paneIndex)
+		if err != nil {
+			return detect.StateDone, ""
+		}
+		if waiting, reason := detect.DetectWaiting(content); waiting {
+			return detect.StateWaiting, reason
+		}
+		return detect.StateDone, ""
+	}
+
+	// No title match — full content scrape fallback
+	content, err := m.mux.CapturePaneByIndex(ap.session, ap.winIndex, ap.paneIndex)
+	if err != nil {
+		return detect.StateUnknown, ""
+	}
+	agentState, reason := detect.DetectState(content)
+
+	if agentState == detect.StateUnknown {
+		existing := m.store.GetAgent(ap.session, ap.winIndex)
+		if existing != nil && existing.State != "" {
+			return existing.State, ""
+		}
+		return detect.StateRunning, ""
+	}
+
+	if agentState == detect.StateExited {
+		return detect.StateDone, ""
+	}
+
+	return agentState, reason
 }
 
 func (m Model) scrapeAgents() tea.Cmd {
 	return func() tea.Msg {
-		// Single tmux call to get ALL panes across all sessions
 		allPanes, err := m.mux.AllPanes()
 		if err != nil {
 			logger.Log("scrape error: %v", err)
-			return nil
+			return scrapeResultMsg{}
 		}
 
-		// Group by session:window, find agent panes
-		type agentPane struct {
-			name      string
-			session   string
-			window    string
-			winIndex  int
-			paneIndex int
-			panePID   int
-			title     string
+		agents, claudePIDs := identifyAgentPanes(allPanes)
+
+		if m.transcriptWatcher != nil && len(claudePIDs) > 0 {
+			m.trackTranscripts(agents, claudePIDs)
 		}
-		var agents []agentPane
-		var claudePanePIDs []int
+
 		seen := make(map[string]bool)
+		for _, ap := range agents {
+			seen[fmt.Sprintf("%s:%d", ap.session, ap.winIndex)] = true
+		}
 
-		for _, p := range allPanes {
-			key := fmt.Sprintf("%s:%d", p.Session, p.WinIndex)
-			if seen[key] {
+		exits := m.findExitedAgents(seen)
+
+		var updates []scrapedAgent
+		for _, ap := range agents {
+			if m.shouldSkipScrape(ap) {
 				continue
 			}
-			agentName := detect.IdentifyAgent(p.Command)
-			if agentName != "" {
-				seen[key] = true
-				agents = append(agents, agentPane{
-					name:      agentName,
-					session:   p.Session,
-					window:    p.Window,
-					winIndex:  p.WinIndex,
-					paneIndex: p.PaneIndex,
-					panePID:   p.PanePID,
-					title:     p.Title,
-				})
-				if agentName == "claude" {
-					claudePanePIDs = append(claudePanePIDs, p.PanePID)
-				}
-			}
-		}
-
-		// Map claude pane PIDs to transcript files and start watching
-		var transcriptMap map[int]string
-		if m.transcriptWatcher != nil && len(claudePanePIDs) > 0 {
-			transcriptMap = transcript.MapPanesToTranscripts(claudePanePIDs)
-			for _, ap := range agents {
-				if ap.name != "claude" {
-					continue
-				}
-				if tpath, ok := transcriptMap[ap.panePID]; ok {
-					m.transcriptWatcher.Track(ap.session, ap.winIndex, ap.name, tpath)
-				}
-			}
-		}
-
-		// When an agent process disappears, transition to done (not clear).
-		// The checkmark stays until the user visits the window.
-		sessions := m.store.Sessions()
-		for _, sess := range sessions {
-			for _, win := range sess.Windows {
-				key := fmt.Sprintf("%s:%d", sess.Name, win.Index)
-				if !seen[key] && win.Agent != nil && win.Agent.State != detect.StateDone {
-					logger.Log("scrape %s agent exited, transitioning to done", key)
-					m.store.SetAgentState(sess.Name, win.Index, state.AgentInfo{
-						Name:  win.Agent.Name,
-						State: detect.StateDone,
-					})
-				}
-			}
-		}
-
-		// Scrape content for each agent pane (only the ones that need it)
-		for _, ap := range agents {
-			// Skip if hook data is fresh
-			sessions := m.store.Sessions()
-			for _, sess := range sessions {
-				if sess.Name != ap.session {
-					continue
-				}
-				for _, win := range sess.Windows {
-					if win.Index != ap.winIndex {
-						continue
-					}
-					if win.Agent != nil && win.Agent.FromTranscript {
-						// Transcript is actively watching — always trust it over scraping
-						goto nextAgent
-					}
-					if win.Agent != nil && win.Agent.FromHook && time.Since(win.Agent.LastChanged) < 10*time.Second {
-						logger.Log("scrape %s:%s skipping — hook fresh (%s)", ap.session, ap.window, time.Since(win.Agent.LastChanged).Round(time.Millisecond))
-						goto nextAgent
-					}
-				}
-			}
-
-			{
-				var agentState detect.State
-				var reason string
-
-				// Title-based detection for Claude Code: fast path, no scraping needed
-				titleState := detect.DetectStateFromTitle(ap.title)
-
-				if titleState == detect.StateRunning {
-					// Title says busy — trust it, no scrape needed
-					agentState = detect.StateRunning
-				} else if titleState == detect.StateDone {
-					// Title says not-busy — scrape bottom lines only for waiting detection
-					content, err := m.mux.CapturePaneByIndex(ap.session, ap.winIndex, ap.paneIndex, 30)
-					if err == nil {
-						if waiting, wr := detect.DetectWaiting(content); waiting {
-							agentState = detect.StateWaiting
-							reason = wr
-						} else {
-							agentState = detect.StateDone
-						}
-					} else {
-						agentState = detect.StateDone
-					}
-				} else {
-					// No title match (non-Claude agent, or title not set) — full scrape fallback
-					content, err := m.mux.CapturePaneByIndex(ap.session, ap.winIndex, ap.paneIndex, 30)
-					if err != nil {
-						continue
-					}
-					agentState, reason = detect.DetectState(content)
-
-					// Look up existing state to avoid flipping done→running on unknown
-					var existingState detect.State
-					for _, sess := range m.store.Sessions() {
-						if sess.Name != ap.session {
-							continue
-						}
-						for _, win := range sess.Windows {
-							if win.Index == ap.winIndex && win.Agent != nil {
-								existingState = win.Agent.State
-							}
-						}
-					}
-
-					switch agentState {
-					case detect.StateUnknown:
-						if existingState != "" {
-							agentState = existingState
-						} else {
-							agentState = detect.StateRunning
-						}
-					case detect.StateExited:
-						agentState = detect.StateDone
-					}
-				}
-
-				logger.Log("scrape %s:%s agent=%s state=%s (title=%q)", ap.session, ap.window, ap.name, agentState, ap.title)
-
-				// Re-check hook freshness before writing — a hook may have fired
-				// during capture-pane (race condition)
-				var model string
-				var ctxPct float64
-				skipWrite := false
-				for _, sess := range m.store.Sessions() {
-					if sess.Name != ap.session {
-						continue
-					}
-					for _, win := range sess.Windows {
-						if win.Index == ap.winIndex && win.Agent != nil {
-							model = win.Agent.Model
-							ctxPct = win.Agent.ContextPct
-							if win.Agent.FromTranscript {
-								skipWrite = true
-							} else if win.Agent.FromHook && time.Since(win.Agent.LastChanged) < 10*time.Second {
-								skipWrite = true
-							}
-						}
-					}
-				}
-				if skipWrite {
-					logger.Log("scrape %s:%s skipping write — hook arrived during scrape", ap.session, ap.window)
-					goto nextAgent
-				}
-
-				m.store.SetAgentState(ap.session, ap.winIndex, state.AgentInfo{
+			agentState, reason := m.detectAgentState(ap)
+			logger.Log("scrape %s:%s agent=%s state=%s (title=%q)", ap.session, ap.window, ap.name, agentState, ap.title)
+			updates = append(updates, scrapedAgent{
+				session:  ap.session,
+				winIndex: ap.winIndex,
+				info: state.AgentInfo{
 					Name:       ap.name,
 					State:      agentState,
 					WaitReason: reason,
-					Model:      model,
-					ContextPct: ctxPct,
-				})
-			}
-		nextAgent:
+				},
+			})
 		}
-		return nil
+
+		return scrapeResultMsg{updates: updates, exits: exits}
+	}
+}
+
+func (m *Model) applyScrapeResult(msg scrapeResultMsg) {
+	for _, exit := range msg.exits {
+		m.store.SetAgentState(exit.session, exit.winIndex, state.AgentInfo{
+			Name:  exit.name,
+			State: detect.StateDone,
+		})
+	}
+
+	for _, sa := range msg.updates {
+		existing := m.store.GetAgent(sa.session, sa.winIndex)
+		// Skip if fresher data arrived while we were scraping
+		if existing != nil {
+			if existing.FromTranscript {
+				continue
+			}
+			if existing.FromHook && time.Since(existing.LastChanged) < 10*time.Second {
+				continue
+			}
+			sa.info.Model = existing.Model
+			sa.info.ContextPct = existing.ContextPct
+		}
+		m.store.SetAgentState(sa.session, sa.winIndex, sa.info)
 	}
 }

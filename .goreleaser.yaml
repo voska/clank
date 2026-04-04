@@ -27,6 +27,18 @@ archives:
 checksum:
   name_template: checksums.txt
 
+brews:
+  - repository:
+      owner: voska
+      name: homebrew-tap
+    homepage: https://github.com/voska/clank
+    description: "tmux sidebar for AI agent fleet visibility"
+    license: MIT
+    install: |
+      bin.install "clank"
+    test: |
+      system "#{bin}/clank", "--version"
+
 changelog:
   sort: asc
   filters:

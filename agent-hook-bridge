@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# agent-hook-bridge — bridges Claude Code hooks to clank + Ghostty
+# agent-hook-bridge — bridges Claude Code hooks to clank + desktop notifications
 # Install: cp agent-hook-bridge ~/.local/bin/ && chmod +x ~/.local/bin/agent-hook-bridge
 set -euo pipefail
 
@@ -8,7 +8,8 @@ INPUT=$(cat)
 SESS=$(tmux display-message -p '#S' 2>/dev/null || echo "unknown")
 WIN=$(tmux display-message -p '#W' 2>/dev/null || echo "unknown")
 PTY=$(tmux display-message -p '#{pane_tty}' 2>/dev/null || echo "")
-SOCK="/tmp/clank-$(id -u).sock"
+RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp}"
+SOCK="$RUNTIME_DIR/clank-$(id -u).sock"
 
 sock_send() {
   if [ -S "$SOCK" ]; then
@@ -16,11 +17,21 @@ sock_send() {
   fi
 }
 
-ghostty_notify() {
+notify() {
   local title="$1" body="$2"
   if [ -n "$PTY" ]; then
+    # Ghostty (OSC 777)
     printf '\033Ptmux;\033\033]777;notify;%s;%s\007\033\\' "$title" "$body" > "$PTY" 2>/dev/null
+    # iTerm2 (OSC 9)
+    printf '\033Ptmux;\033\033]9;%s: %s\007\033\\' "$title" "$body" > "$PTY" 2>/dev/null
+    # Kitty (OSC 99)
+    printf '\033Ptmux;\033\033]99;i=1:d=0;%s: %s\033\\\033\\' "$title" "$body" > "$PTY" 2>/dev/null
+    # Bell for tmux bell-action
     printf '\a' > "$PTY" 2>/dev/null
+  fi
+  # macOS native notification fallback
+  if command -v osascript >/dev/null 2>&1; then
+    osascript -e "display notification \"$body\" with title \"$title\"" 2>/dev/null &
   fi
 }
 
@@ -33,21 +44,21 @@ case "$EVENT" in
     case "$TYPE" in
       idle_prompt)
         sock_send "{\"session\":\"$SESS\",\"window\":\"$WIN\",\"state\":\"done\",\"agent\":\"claude\"}"
-        ghostty_notify "$SESS > $WIN" "finished"
+        notify "$SESS > $WIN" "finished"
         ;;
       permission_prompt|worker_permission_prompt)
         sock_send "{\"session\":\"$SESS\",\"window\":\"$WIN\",\"state\":\"waiting\",\"reason\":\"permission\",\"agent\":\"claude\"}"
-        ghostty_notify "$SESS > $WIN" "needs permission"
+        notify "$SESS > $WIN" "needs permission"
         ;;
       *)
         sock_send "{\"session\":\"$SESS\",\"window\":\"$WIN\",\"state\":\"waiting\",\"reason\":\"$TYPE\",\"agent\":\"claude\"}"
-        ghostty_notify "$SESS > $WIN" "needs attention"
+        notify "$SESS > $WIN" "needs attention"
         ;;
     esac
     ;;
   stop)
     sock_send "{\"session\":\"$SESS\",\"window\":\"$WIN\",\"state\":\"done\",\"agent\":\"claude\"}"
-    ghostty_notify "$SESS > $WIN" "finished"
+    notify "$SESS > $WIN" "finished"
     ;;
   session-start)
     sock_send "{\"session\":\"$SESS\",\"window\":\"$WIN\",\"state\":\"running\",\"agent\":\"claude\"}"

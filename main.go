@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -19,12 +20,27 @@ import (
 
 var version = "dev"
 
+func stateDir() string {
+	if dir := os.Getenv("XDG_STATE_HOME"); dir != "" {
+		return filepath.Join(dir, "clank")
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".local", "state", "clank")
+}
+
+func runtimeDir() string {
+	if dir := os.Getenv("XDG_RUNTIME_DIR"); dir != "" {
+		return dir
+	}
+	return os.TempDir()
+}
+
 func main() {
 	versionFlag := flag.Bool("version", false, "Print version")
 	width := flag.Int("width", 30, "Sidebar width in columns")
 	pollInterval := flag.Duration("poll", 1*time.Second, "tmux poll interval")
 	scrapeInterval := flag.Duration("scrape", 2*time.Second, "Content scrape interval")
-	defaultSocket := fmt.Sprintf("/tmp/clank-%d.sock", os.Getuid())
+	defaultSocket := filepath.Join(runtimeDir(), fmt.Sprintf("clank-%d.sock", os.Getuid()))
 	socketPath := flag.String("socket", defaultSocket, "Unix socket path")
 	flag.Parse()
 
@@ -33,13 +49,17 @@ func main() {
 		os.Exit(0)
 	}
 
-	if err := logger.Init("/tmp/clank.log"); err != nil {
+	sd := stateDir()
+	os.MkdirAll(sd, 0700)
+
+	logPath := filepath.Join(sd, "clank.log")
+	if err := logger.Init(logPath); err != nil {
 		log.Printf("clank: warning: could not open log: %v", err)
 	}
 	defer logger.Close()
-	logger.Log("starting clank %s (width=%d poll=%s scrape=%s socket=%s)", version, *width, *pollInterval, *scrapeInterval, *socketPath)
 
-	const statePath = "/tmp/clank-state.json"
+	statePath := filepath.Join(sd, "state.json")
+	logger.Log("starting clank %s (width=%d poll=%s scrape=%s socket=%s state=%s)", version, *width, *pollInterval, *scrapeInterval, *socketPath, statePath)
 
 	store := state.New()
 	if err := store.Load(statePath); err == nil {
@@ -54,14 +74,14 @@ func main() {
 	}
 	defer listener.Close()
 
-	// Transcript watcher — primary detection for Claude Code
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	var tw *transcript.Watcher
 	tw, err = transcript.NewWatcher()
 	if err != nil {
 		logger.Log("warning: transcript watcher disabled: %v", err)
 	} else {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
 		go tw.Run(ctx)
 		defer tw.Close()
 		logger.Log("transcript watcher enabled")
@@ -74,12 +94,17 @@ func main() {
 	}
 	model := ui.NewModel(store, mux, events, config, tw)
 
-	// Save state periodically in background
 	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
 		for {
-			time.Sleep(5 * time.Second)
-			if err := store.Save(statePath); err != nil {
-				logger.Log("save error: %v", err)
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if err := store.Save(statePath); err != nil {
+					logger.Log("save error: %v", err)
+				}
 			}
 		}
 	}()
@@ -88,5 +113,6 @@ func main() {
 	if _, err := p.Run(); err != nil {
 		log.Fatalf("clank: %v", err)
 	}
+	cancel()
 	store.Save(statePath)
 }
