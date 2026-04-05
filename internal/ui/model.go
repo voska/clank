@@ -31,7 +31,9 @@ type Model struct {
 	width             int
 	height            int
 	items             []item
-	screenRows        []int
+	allLineItems      []int // maps every content line -> item index (-1 for spacers)
+	screenRows        []int // maps visible screen row -> item index (after scroll)
+	scrollOffset      int
 	pruned            bool
 	filterActive      bool
 }
@@ -121,23 +123,24 @@ func (m Model) visibleSessions() []state.SessionState {
 	return filtered
 }
 
-// rebuildItems flattens the session/window tree into a navigable list
-// and maps screen rows to item indices. Must be called after any state change.
+// rebuildItems flattens the session/window tree into a navigable list,
+// builds the full line-to-item mapping, and computes scroll offset so
+// the cursor stays visible. Must be called after any state change.
 func (m *Model) rebuildItems() {
 	m.items = nil
-	m.screenRows = nil
+	m.allLineItems = nil
 
 	sessions := m.visibleSessions()
 
 	// Top padding
-	m.screenRows = append(m.screenRows, -1)
+	m.allLineItems = append(m.allLineItems, -1)
 
 	for si, sess := range sessions {
-		m.screenRows = append(m.screenRows, len(m.items))
+		m.allLineItems = append(m.allLineItems, len(m.items))
 		m.items = append(m.items, item{isSession: true, session: sess.Name, sessIndex: sess.Index})
 
 		for _, win := range sess.Windows {
-			m.screenRows = append(m.screenRows, len(m.items))
+			m.allLineItems = append(m.allLineItems, len(m.items))
 			m.items = append(m.items, item{
 				isSession: false,
 				session:   sess.Name,
@@ -148,8 +151,16 @@ func (m *Model) rebuildItems() {
 		}
 
 		if si < len(sessions)-1 {
-			m.screenRows = append(m.screenRows, -1)
+			m.allLineItems = append(m.allLineItems, -1)
 		}
+	}
+
+	if m.filterActive {
+		if len(m.items) == 0 {
+			m.allLineItems = append(m.allLineItems, -1)
+		}
+		m.allLineItems = append(m.allLineItems, -1)
+		m.allLineItems = append(m.allLineItems, -1)
 	}
 
 	// Clamp cursor
@@ -158,6 +169,45 @@ func (m *Model) rebuildItems() {
 	}
 	if m.cursor < 0 {
 		m.cursor = 0
+	}
+
+	// Find which content line the cursor is on
+	cursorLine := 0
+	for i, itemIdx := range m.allLineItems {
+		if itemIdx == m.cursor {
+			cursorLine = i
+			break
+		}
+	}
+
+	totalLines := len(m.allLineItems)
+	viewHeight := m.height
+	if viewHeight <= 0 || totalLines <= viewHeight {
+		m.scrollOffset = 0
+	} else {
+		if cursorLine < m.scrollOffset {
+			m.scrollOffset = cursorLine
+		}
+		if cursorLine >= m.scrollOffset+viewHeight {
+			m.scrollOffset = cursorLine - viewHeight + 1
+		}
+		maxScroll := totalLines - viewHeight
+		if m.scrollOffset > maxScroll {
+			m.scrollOffset = maxScroll
+		}
+		if m.scrollOffset < 0 {
+			m.scrollOffset = 0
+		}
+	}
+
+	// Build screenRows for the visible window
+	m.screenRows = m.screenRows[:0]
+	end := m.scrollOffset + viewHeight
+	if end > totalLines || viewHeight <= 0 {
+		end = totalLines
+	}
+	for i := m.scrollOffset; i < end; i++ {
+		m.screenRows = append(m.screenRows, m.allLineItems[i])
 	}
 }
 
@@ -206,35 +256,51 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) View() string {
 	sessions := m.visibleSessions()
 
-	var b strings.Builder
-	b.WriteString("\n") // top padding
+	// Build all content lines
+	var lines []string
+	lines = append(lines, "") // top padding
 
 	itemIdx := 0
 	for si, sess := range sessions {
 		selected := m.cursor == itemIdx
-		b.WriteString(renderSessionHeader(sess.Index, sess.Name, false, "", selected, m.width))
-		b.WriteString("\n")
+		lines = append(lines, renderSessionHeader(sess.Index, sess.Name, false, "", selected, m.width))
 		itemIdx++
 
 		for _, win := range sess.Windows {
 			selected = m.cursor == itemIdx
-			b.WriteString(renderWindowLine(win, m.width, selected, m.spinnerFrame))
-			b.WriteString("\n")
+			lines = append(lines, renderWindowLine(win, m.width, selected, m.spinnerFrame))
 			itemIdx++
 		}
 
 		if si < len(sessions)-1 {
-			b.WriteString("\n")
+			lines = append(lines, "")
 		}
 	}
 
 	if m.filterActive {
 		if len(m.items) == 0 {
-			b.WriteString(dimStyle.Render("  no active agents"))
+			lines = append(lines, dimStyle.Render("  no active agents"))
+		}
+		lines = append(lines, "")
+		lines = append(lines, dimStyle.Render("  [f] filtered"))
+	}
+
+	// Apply scroll window
+	start := m.scrollOffset
+	end := len(lines)
+	if m.height > 0 && start+m.height < end {
+		end = start + m.height
+	}
+	if start > end {
+		start = end
+	}
+
+	var b strings.Builder
+	for i := start; i < end; i++ {
+		b.WriteString(lines[i])
+		if i < end-1 {
 			b.WriteString("\n")
 		}
-		b.WriteString("\n")
-		b.WriteString(dimStyle.Render("  [f] filtered"))
 	}
 
 	return b.String()
