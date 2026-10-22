@@ -1,3 +1,4 @@
+// Package tmux queries and controls tmux sessions and panes.
 package tmux
 
 import (
@@ -7,6 +8,7 @@ import (
 	"strings"
 )
 
+// Session describes a tmux session.
 type Session struct {
 	Index       int
 	Name        string
@@ -14,6 +16,7 @@ type Session struct {
 	Attached    bool
 }
 
+// Window describes a tmux window.
 type Window struct {
 	Index  int
 	Name   string
@@ -31,6 +34,7 @@ type PaneInfo struct {
 	Title     string
 }
 
+// Mux provides the tmux operations used by the sidebar.
 type Mux interface {
 	ListSessions() ([]Session, error)
 	ListWindows(session string) ([]Window, error)
@@ -42,8 +46,10 @@ type Mux interface {
 	SwitchWindow(session string, windowIndex int) error
 }
 
+// Live runs tmux commands against the current server.
 type Live struct{}
 
+// ListSessions returns the sessions known to tmux.
 func (l *Live) ListSessions() ([]Session, error) {
 	out, err := run("list-sessions", "-F", "#{session_name}\t#{session_windows}\t#{session_attached}")
 	if err != nil {
@@ -52,6 +58,7 @@ func (l *Live) ListSessions() ([]Session, error) {
 	return ParseSessionList(out), nil
 }
 
+// ListWindows returns the windows in a session.
 func (l *Live) ListWindows(session string) ([]Window, error) {
 	out, err := run("list-windows", "-t", session, "-F", "#{window_index}\t#{window_name}\t#{window_active}")
 	if err != nil {
@@ -96,6 +103,7 @@ func (l *Live) AllPanes() ([]PaneInfo, error) {
 	return panes, nil
 }
 
+// PaneCommand returns the foreground command in a pane.
 func (l *Live) PaneCommand(target string) (string, error) {
 	out, err := run("display-message", "-t", target, "-p", "#{pane_current_command}")
 	if err != nil {
@@ -120,6 +128,7 @@ func (l *Live) PaneCommands(session string, windowIndex int) ([]string, error) {
 	return cmds, nil
 }
 
+// CapturePane returns the visible contents of a pane.
 func (l *Live) CapturePane(target string) (string, error) {
 	out, err := run("capture-pane", "-t", target, "-p")
 	if err != nil {
@@ -128,11 +137,13 @@ func (l *Live) CapturePane(target string) (string, error) {
 	return out, nil
 }
 
+// CapturePaneByIndex captures a pane identified by its numeric indices.
 func (l *Live) CapturePaneByIndex(session string, windowIndex, paneIndex int) (string, error) {
 	target := fmt.Sprintf("%s:%d.%d", session, windowIndex, paneIndex)
 	return l.CapturePane(target)
 }
 
+// SwitchWindow selects a window and focuses its main pane.
 func (l *Live) SwitchWindow(session string, windowIndex int) error {
 	target := fmt.Sprintf("%s:%d", session, windowIndex)
 	_, err := run("select-window", "-t", target)
@@ -148,7 +159,7 @@ func (l *Live) SwitchWindow(session string, windowIndex int) error {
 	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
 		parts := strings.SplitN(line, "\t", 2)
 		if len(parts) == 2 && parts[1] != "clank" && parts[1] != "cat" {
-			run("select-pane", "-t", parts[0])
+			_, _ = run("select-pane", "-t", parts[0])
 			break
 		}
 	}
@@ -156,6 +167,7 @@ func (l *Live) SwitchWindow(session string, windowIndex int) error {
 }
 
 func run(args ...string) (string, error) {
+	// #nosec G204 -- callers supply tmux subcommands and separate arguments; no shell is used.
 	cmd := exec.Command("tmux", args...)
 	out, err := cmd.Output()
 	return string(out), err
@@ -211,6 +223,7 @@ func ParseWindowList(raw string) []Window {
 	return windows
 }
 
+// ParsePaneCommand trims the command reported by tmux.
 func ParsePaneCommand(raw string) string {
 	return strings.TrimSpace(raw)
 }

@@ -2,6 +2,8 @@ module github.com/voska/clank
 
 go 1.26.1
 
+toolchain go1.26.10
+
 require (
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0

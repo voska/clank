@@ -1,3 +1,4 @@
+// Package socket receives agent hook events over a Unix socket.
 package socket
 
 import (
@@ -9,6 +10,7 @@ import (
 	"github.com/voska/clank/internal/logger"
 )
 
+// Event carries an agent state update from a hook.
 type Event struct {
 	Session    string  `json:"session"`
 	Window     string  `json:"window"`
@@ -19,13 +21,15 @@ type Event struct {
 	ContextPct float64 `json:"context_pct,omitempty"`
 }
 
+// Listener receives hook events on a Unix socket.
 type Listener struct {
 	ln       net.Listener
 	sockPath string
 }
 
+// Listen starts receiving hook events at sockPath.
 func Listen(sockPath string, events chan<- Event) (*Listener, error) {
-	os.Remove(sockPath)
+	_ = os.Remove(sockPath)
 
 	ln, err := net.Listen("unix", sockPath)
 	if err != nil {
@@ -48,7 +52,7 @@ func (l *Listener) accept(events chan<- Event) {
 }
 
 func (l *Listener) handle(conn net.Conn, events chan<- Event) {
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	scanner := bufio.NewScanner(conn)
 	for scanner.Scan() {
 		var ev Event
@@ -60,8 +64,9 @@ func (l *Listener) handle(conn net.Conn, events chan<- Event) {
 	}
 }
 
+// Close shuts down the listener and removes its socket.
 func (l *Listener) Close() error {
 	err := l.ln.Close()
-	os.Remove(l.sockPath)
+	_ = os.Remove(l.sockPath)
 	return err
 }
