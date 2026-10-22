@@ -35,6 +35,7 @@ func LoadAllSessions() (map[int]SessionInfo, error) {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
 			continue
 		}
+		// #nosec G304 -- entries are enumerated from the user's Claude session directory.
 		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
 		if err != nil {
 			continue
@@ -49,6 +50,8 @@ func LoadAllSessions() (map[int]SessionInfo, error) {
 }
 
 // TranscriptPath returns the JSONL transcript file path for a session.
+//
+//revive:disable-next-line:exported // Preserve the established helper name.
 func TranscriptPath(info SessionInfo) string {
 	home, _ := os.UserHomeDir()
 	encoded := encodeCWD(info.CWD)
@@ -102,6 +105,7 @@ func MapPanesToTranscripts(panePIDs []int) map[int]string {
 
 // getParentPID returns the parent PID of a process.
 func getParentPID(pid int) int {
+	// #nosec G204 -- pid is formatted as a decimal integer and passed without a shell.
 	out, err := exec.Command("ps", "-o", "ppid=", "-p", fmt.Sprintf("%d", pid)).Output()
 	if err != nil {
 		return 0

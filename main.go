@@ -1,3 +1,4 @@
+// Command clank displays coding agent activity in a tmux sidebar.
 package main
 
 import (
@@ -50,7 +51,7 @@ func main() {
 	}
 
 	sd := stateDir()
-	os.MkdirAll(sd, 0700)
+	_ = os.MkdirAll(sd, 0o700)
 
 	logPath := filepath.Join(sd, "clank.log")
 	if err := logger.Init(logPath); err != nil {
@@ -72,7 +73,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("clank: failed to start socket listener: %v", err)
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -114,5 +115,5 @@ func main() {
 		log.Fatalf("clank: %v", err)
 	}
 	cancel()
-	store.Save(statePath)
+	_ = store.Save(statePath)
 }

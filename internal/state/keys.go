@@ -1,3 +1,4 @@
+// Package state stores session trees and agent activity.
 package state
 
 import "fmt"

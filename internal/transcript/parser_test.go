@@ -92,7 +92,9 @@ func TestReadLastState(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "test.jsonl")
-			os.WriteFile(path, []byte(tt.content), 0644)
+			if err := os.WriteFile(path, []byte(tt.content), 0o600); err != nil {
+				t.Fatalf("WriteFile: %v", err)
+			}
 
 			got, err := ReadLastState(path)
 			if err != nil {

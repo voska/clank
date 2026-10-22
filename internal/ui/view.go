@@ -10,7 +10,7 @@ import (
 	"github.com/voska/clank/internal/state"
 )
 
-func renderSessionHeader(index int, name string, collapsed bool, highestState detect.State, selected bool, width int) string {
+func renderSessionHeader(_ int, name string, _ bool, _ detect.State, selected bool, _ int) string {
 	if selected {
 		return cursorStyle.Render(name)
 	}

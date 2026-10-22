@@ -1,3 +1,4 @@
+// Package ui implements the terminal sidebar.
 package ui
 
 import (
@@ -14,12 +15,14 @@ import (
 	"github.com/voska/clank/internal/transcript"
 )
 
+// Config sets sidebar dimensions and polling intervals.
 type Config struct {
 	Width          int
 	PollInterval   time.Duration
 	ScrapeInterval time.Duration
 }
 
+// Model holds the sidebar state and its event sources.
 type Model struct {
 	config            Config
 	store             *state.Store
@@ -57,11 +60,13 @@ type agentPane struct {
 	title     string
 }
 
-type tickMsg struct{}
-type scrapeMsg struct{}
-type spinnerMsg struct{}
-type socketEventMsg socket.Event
-type transcriptUpdateMsg transcript.StateUpdate
+type (
+	tickMsg             struct{}
+	scrapeMsg           struct{}
+	spinnerMsg          struct{}
+	socketEventMsg      socket.Event
+	transcriptUpdateMsg transcript.StateUpdate
+)
 
 type pollResultMsg struct {
 	snapshots []state.SessionSnapshot
@@ -84,6 +89,7 @@ type agentExit struct {
 	name     string
 }
 
+// NewModel creates a sidebar backed by the supplied event sources.
 func NewModel(store *state.Store, mux tmux.Mux, events <-chan socket.Event, config Config, tw *transcript.Watcher) Model {
 	return Model{
 		config:            config,
@@ -95,6 +101,7 @@ func NewModel(store *state.Store, mux tmux.Mux, events <-chan socket.Event, conf
 	}
 }
 
+// Init starts the sidebar event subscriptions and timers.
 func (m Model) Init() tea.Cmd {
 	cmds := []tea.Cmd{
 		m.pollTmux(),
@@ -211,6 +218,7 @@ func (m *Model) rebuildItems() {
 	}
 }
 
+// Update handles a sidebar event.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -253,6 +261,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// View renders the visible sidebar.
 func (m Model) View() string {
 	sessions := m.visibleSessions()
 
@@ -325,9 +334,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.cursor >= 0 && m.cursor < len(m.items) {
 			it := m.items[m.cursor]
 			if it.isSession {
-				m.mux.SwitchWindow(it.session, 0)
+				_ = m.mux.SwitchWindow(it.session, 0)
 			} else {
-				m.mux.SwitchWindow(it.session, it.winIndex)
+				_ = m.mux.SwitchWindow(it.session, it.winIndex)
 				m.store.ClearUnseen(it.session, it.winIndex)
 			}
 		}
@@ -350,9 +359,9 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	m.cursor = idx
 	it := m.items[idx]
 	if it.isSession {
-		m.mux.SwitchWindow(it.session, 0)
+		_ = m.mux.SwitchWindow(it.session, 0)
 	} else {
-		m.mux.SwitchWindow(it.session, it.winIndex)
+		_ = m.mux.SwitchWindow(it.session, it.winIndex)
 		m.store.ClearUnseen(it.session, it.winIndex)
 	}
 	return m, nil
@@ -561,7 +570,7 @@ func (m Model) trackTranscripts(agents []agentPane, claudePIDs []int) {
 			continue
 		}
 		if tpath, ok := transcriptMap[ap.panePID]; ok {
-			m.transcriptWatcher.Track(ap.session, ap.winIndex, ap.name, tpath)
+			_ = m.transcriptWatcher.Track(ap.session, ap.winIndex, ap.name, tpath)
 		}
 	}
 }
