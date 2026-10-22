@@ -9,17 +9,19 @@ import (
 	"github.com/voska/clank/internal/detect"
 )
 
+// AgentInfo holds the last observed activity of an agent.
 type AgentInfo struct {
-	Name        string
-	State       detect.State
-	WaitReason  string
-	Model       string
-	ContextPct  float64
-	LastChanged time.Time
+	Name           string
+	State          detect.State
+	WaitReason     string
+	Model          string
+	ContextPct     float64
+	LastChanged    time.Time
 	FromHook       bool // true if last update came from a hook
 	FromTranscript bool // true if last update came from JSONL transcript watching
 }
 
+// WindowState holds a tmux window and its agent activity.
 type WindowState struct {
 	Name      string
 	Index     int
@@ -28,6 +30,7 @@ type WindowState struct {
 	Agent     *AgentInfo
 }
 
+// SessionState holds a tmux session and its windows.
 type SessionState struct {
 	Name      string
 	Index     int
@@ -35,18 +38,21 @@ type SessionState struct {
 	Windows   []WindowState
 }
 
+// SessionSnapshot describes a session observed in tmux.
 type SessionSnapshot struct {
 	Name    string
 	Index   int
 	Windows []WindowSnapshot
 }
 
+// WindowSnapshot describes a window observed in tmux.
 type WindowSnapshot struct {
 	Name   string
 	Index  int
 	Active bool
 }
 
+// Store synchronizes access to the session tree and agent state.
 type Store struct {
 	mu        sync.RWMutex
 	sessions  []SessionState
@@ -54,12 +60,14 @@ type Store struct {
 	persisted map[string]persistedAgent // restored from disk on startup
 }
 
+// New creates an empty state store.
 func New() *Store {
 	return &Store{
 		collapsed: make(map[string]bool),
 	}
 }
 
+// UpdateTree replaces the tmux tree while preserving agent activity.
 func (s *Store) UpdateTree(snapshots []SessionSnapshot) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -107,6 +115,7 @@ func (s *Store) UpdateTree(snapshots []SessionSnapshot) {
 	s.sessions = newSessions
 }
 
+// Sessions returns a snapshot of the session tree.
 func (s *Store) Sessions() []SessionState {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -124,6 +133,7 @@ func (s *Store) Sessions() []SessionState {
 	return result
 }
 
+// SetAgentState updates an agent and marks new activity as unseen.
 func (s *Store) SetAgentState(session string, windowIndex int, info AgentInfo) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -152,6 +162,7 @@ func (s *Store) SetAgentState(session string, windowIndex int, info AgentInfo) {
 	}
 }
 
+// ClearAgent removes the agent associated with a window.
 func (s *Store) ClearAgent(session string, windowIndex int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -170,6 +181,7 @@ func (s *Store) ClearAgent(session string, windowIndex int) {
 	}
 }
 
+// ClearUnseen acknowledges the current activity in a window.
 func (s *Store) ClearUnseen(session string, windowIndex int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -188,6 +200,7 @@ func (s *Store) ClearUnseen(session string, windowIndex int) {
 	}
 }
 
+// ToggleCollapse toggles whether a session is collapsed.
 func (s *Store) ToggleCollapse(session string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -201,6 +214,7 @@ func (s *Store) ToggleCollapse(session string) {
 	}
 }
 
+// HighestPriority returns the most urgent agent state in a session.
 func (s *Store) HighestPriority(session string) detect.State {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -272,11 +286,12 @@ func (s *Store) Save(path string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0644)
+	return os.WriteFile(path, data, 0o600)
 }
 
 // Load restores agent state from a file. Call before the first UpdateTree.
 func (s *Store) Load(path string) error {
+	// #nosec G304 -- path is the configured local state file.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err

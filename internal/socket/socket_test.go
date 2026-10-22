@@ -17,7 +17,11 @@ func tempSockPath(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("MkdirTemp: %v", err)
 	}
-	t.Cleanup(func() { os.RemoveAll(dir) })
+	t.Cleanup(func() {
+		if err := os.RemoveAll(dir); err != nil {
+			t.Errorf("RemoveAll: %v", err)
+		}
+	})
 	return filepath.Join(dir, "t.sock")
 }
 
@@ -29,14 +33,22 @@ func TestListenerReceivesEvent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Listen: %v", err)
 	}
-	defer l.Close()
+	defer func() {
+		if err := l.Close(); err != nil {
+			t.Errorf("Close listener: %v", err)
+		}
+	}()
 
 	conn, err := net.Dial("unix", sockPath)
 	if err != nil {
 		t.Fatalf("Dial: %v", err)
 	}
-	fmt.Fprintln(conn, `{"session":"proj-a","window":"dev","state":"running","agent":"claude"}`)
-	conn.Close()
+	if _, err := fmt.Fprintln(conn, `{"session":"proj-a","window":"dev","state":"running","agent":"claude"}`); err != nil {
+		t.Fatalf("Write event: %v", err)
+	}
+	if err := conn.Close(); err != nil {
+		t.Fatalf("Close connection: %v", err)
+	}
 
 	select {
 	case ev := <-events:
@@ -65,15 +77,23 @@ func TestListenerHandlesMultipleConnections(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Listen: %v", err)
 	}
-	defer l.Close()
+	defer func() {
+		if err := l.Close(); err != nil {
+			t.Errorf("Close listener: %v", err)
+		}
+	}()
 
 	for i := 0; i < 3; i++ {
 		conn, err := net.Dial("unix", sockPath)
 		if err != nil {
 			t.Fatalf("Dial %d: %v", i, err)
 		}
-		fmt.Fprintf(conn, `{"session":"s%d","window":"w","state":"running","agent":"claude"}`+"\n", i)
-		conn.Close()
+		if _, err := fmt.Fprintf(conn, `{"session":"s%d","window":"w","state":"running","agent":"claude"}`+"\n", i); err != nil {
+			t.Fatalf("Write event: %v", err)
+		}
+		if err := conn.Close(); err != nil {
+			t.Fatalf("Close connection: %v", err)
+		}
 	}
 
 	for i := 0; i < 3; i++ {
@@ -94,7 +114,9 @@ func TestListenerCleansUpSocket(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Listen: %v", err)
 	}
-	l.Close()
+	if err := l.Close(); err != nil {
+		t.Fatalf("Close listener: %v", err)
+	}
 
 	if _, err := os.Stat(sockPath); !os.IsNotExist(err) {
 		t.Error("socket file should be removed after Close")

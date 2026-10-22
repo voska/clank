@@ -24,12 +24,14 @@ func (m *mockMux) ListWindows(session string) ([]tmux.Window, error) {
 	return m.windows[session], nil
 }
 func (m *mockMux) AllPanes() ([]tmux.PaneInfo, error) { return m.panes, nil }
-func (m *mockMux) PaneCommand(target string) (string, error) {
+func (m *mockMux) PaneCommand(_ string) (string, error) {
 	return "", nil
 }
-func (m *mockMux) PaneCommands(session string, windowIndex int) ([]string, error) {
+
+func (m *mockMux) PaneCommands(_ string, _ int) ([]string, error) {
 	return nil, nil
 }
+
 func (m *mockMux) CapturePane(target string) (string, error) {
 	if m.captures != nil {
 		if c, ok := m.captures[target]; ok {
@@ -38,9 +40,11 @@ func (m *mockMux) CapturePane(target string) (string, error) {
 	}
 	return "", fmt.Errorf("no capture for %s", target)
 }
+
 func (m *mockMux) CapturePaneByIndex(session string, windowIndex, paneIndex int) (string, error) {
 	return m.CapturePane(fmt.Sprintf("%s:%d.%d", session, windowIndex, paneIndex))
 }
+
 func (m *mockMux) SwitchWindow(session string, windowIndex int) error {
 	m.switched = append(m.switched, fmt.Sprintf("%s:%d", session, windowIndex))
 	return nil
