@@ -110,7 +110,7 @@ func (w *Watcher) Untrack(transcriptPath string) {
 	if _, ok := w.files[transcriptPath]; !ok {
 		return
 	}
-	w.fsw.Remove(transcriptPath)
+	_ = w.fsw.Remove(transcriptPath)
 	delete(w.files, transcriptPath)
 	logger.Log("transcript untrack %s", transcriptPath)
 }
@@ -152,11 +152,12 @@ func (w *Watcher) handleWrite(path string) {
 	w.mu.Unlock()
 
 	// Read only new data since last offset
+	// #nosec G304 -- path is an already tracked local transcript.
 	f, err := os.Open(path)
 	if err != nil {
 		return
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	stat, err := f.Stat()
 	if err != nil {
@@ -173,7 +174,7 @@ func (w *Watcher) handleWrite(path string) {
 		}
 	}
 
-	f.Seek(lastOffset, io.SeekStart)
+	_, _ = f.Seek(lastOffset, io.SeekStart)
 	data, err := io.ReadAll(f)
 	if err != nil {
 		return
@@ -225,6 +226,6 @@ func (w *Watcher) handleWrite(path string) {
 
 // Close shuts down the watcher.
 func (w *Watcher) Close() {
-	w.fsw.Close()
+	_ = w.fsw.Close()
 	close(w.Updates)
 }
