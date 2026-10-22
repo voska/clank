@@ -1,3 +1,4 @@
+// Package transcript reads agent activity from Claude Code session files.
 package transcript
 
 import (
@@ -5,7 +6,6 @@ import (
 	"io"
 	"os"
 	"strings"
-
 
 	"github.com/voska/clank/internal/detect"
 )
@@ -15,7 +15,7 @@ type rawLine struct {
 	Type    string `json:"type"`
 	Subtype string `json:"subtype"`
 	Message *struct {
-		StopReason *string `json:"stop_reason"`
+		StopReason *string         `json:"stop_reason"`
 		Content    json.RawMessage `json:"content"`
 	} `json:"message"`
 	// For system error messages
@@ -71,11 +71,12 @@ func DeriveState(line rawLine) detect.State {
 // ReadLastState reads the tail of a JSONL file and returns the state
 // derived from the last state-relevant line.
 func ReadLastState(path string) (detect.State, error) {
+	// #nosec G304 -- path identifies the local transcript selected by the watcher.
 	f, err := os.Open(path)
 	if err != nil {
 		return detect.StateUnknown, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	// Seek to last 16KB — enough for several JSONL lines
 	const tailSize = 16384
@@ -87,7 +88,7 @@ func ReadLastState(path string) (detect.State, error) {
 	if offset < 0 {
 		offset = 0
 	}
-	f.Seek(offset, io.SeekStart)
+	_, _ = f.Seek(offset, io.SeekStart)
 
 	data, err := io.ReadAll(f)
 	if err != nil {

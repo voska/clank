@@ -1,3 +1,4 @@
+// Package detect identifies coding agents and their activity from pane contents.
 package detect
 
 import (
@@ -5,8 +6,10 @@ import (
 	"strings"
 )
 
+// State describes the current activity of an agent.
 type State string
 
+// Agent activity states, including an unknown state for unrecognized output.
 const (
 	StateRunning State = "running"
 	StateWaiting State = "waiting"
@@ -34,6 +37,7 @@ const (
 	titlePrefixBusy2 = "⠐"
 )
 
+// IdentifyAgent returns the known agent name for a pane command.
 func IdentifyAgent(command string) string {
 	if agent, ok := knownAgents[command]; ok {
 		return agent
@@ -47,6 +51,8 @@ func IdentifyAgent(command string) string {
 // DetectStateFromTitle uses the Claude Code pane title prefix to determine
 // busy vs not-busy. Returns StateRunning for animated prefixes, StateDone
 // for the static prefix, or StateUnknown if the title doesn't match.
+//
+//revive:disable-next-line:exported // Preserve the established helper name.
 func DetectStateFromTitle(title string) State {
 	if title == "" {
 		return StateUnknown
@@ -63,6 +69,8 @@ func DetectStateFromTitle(title string) State {
 
 // DetectWaiting checks pane content (bottom lines only) for permission/decision
 // prompts. Use this as a secondary check when the title indicates not-busy.
+//
+//revive:disable-next-line:exported // Preserve the established helper name.
 func DetectWaiting(content string) (bool, string) {
 	if content == "" {
 		return false, ""
@@ -81,6 +89,8 @@ func DetectWaiting(content string) (bool, string) {
 // DetectState detects Claude Code state from pane content. This is the
 // fallback path used when title-based detection isn't available (e.g. for
 // droid or other agents that don't set OSC titles).
+//
+//revive:disable-next-line:exported // Preserve the established helper name.
 func DetectState(content string) (State, string) {
 	if content == "" {
 		return StateUnknown, ""
